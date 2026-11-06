@@ -29,6 +29,7 @@ REGION_POLICY_UNKNOWN = "unknown"
 
 ADAPTER_USGS_TNM = "usgs_tnm_3dep"
 ADAPTER_ILLINOIS_ILHMP = "illinois_ilhmp_isgs"
+ADAPTER_ARKANSAS_AGIO = "arkansas_agio_dem"
 ADAPTER_NASADEM = "nasadem"
 ADAPTER_COPERNICUS_GLO30 = "copernicus_glo30"
 ADAPTER_ALOS_AW3D30 = "alos_aw3d30"
@@ -243,6 +244,7 @@ class SourceAdapter:
 
 from .usgs_tnm import USGSTNMAdapter
 from .illinois_ilhmp import IllinoisILHMPAdapter
+from .arkansas_agio import ArkansasAGIOAdapter
 from .global_adapters import ALOSAW3D30Adapter, CopernicusGLO30Adapter, NASADEMAdapter
 
 
@@ -271,6 +273,7 @@ class OpenTopographyAdapter(SourceAdapter):
 ADAPTER_CLASSES = (
     USGSTNMAdapter,
     IllinoisILHMPAdapter,
+    ArkansasAGIOAdapter,
     RegisteredRegionalAdapter,
     NASADEMAdapter,
     CopernicusGLO30Adapter,
@@ -423,6 +426,8 @@ def _us_source_precedence(candidate: SourceCandidate, aoi: SourceAOI | None) -> 
         return 0
     if candidate.adapter_id == ADAPTER_ILLINOIS_ILHMP and _candidate_intersects_illinois(candidate, aoi):
         return 0
+    if candidate.adapter_id == ADAPTER_ARKANSAS_AGIO:
+        return 0
     if candidate.adapter_id == ADAPTER_USGS_TNM and resolution <= 10.5:
         return 2
     if candidate.adapter_id == ADAPTER_USGS_TNM and resolution <= 30.5:
@@ -485,6 +490,7 @@ def _quality_warning(candidate: SourceCandidate, policy: SourceRankingPolicy) ->
 
 __all__ = [
     "ADAPTER_ALOS_AW3D30",
+    "ADAPTER_ARKANSAS_AGIO",
     "ADAPTER_CLASSES",
     "ADAPTER_COPERNICUS_GLO30",
     "ADAPTER_ILLINOIS_ILHMP",
@@ -494,6 +500,7 @@ __all__ = [
     "ADAPTER_SRTM_COMPATIBLE",
     "ADAPTER_USGS_TNM",
     "ALOSAW3D30Adapter",
+    "ArkansasAGIOAdapter",
     "COARSE_FALLBACK_WARNING",
     "CopernicusGLO30Adapter",
     "DSM_FALLBACK_WARNING",

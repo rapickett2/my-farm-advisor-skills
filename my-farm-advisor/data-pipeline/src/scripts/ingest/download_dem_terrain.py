@@ -59,6 +59,7 @@ from dem_terrain.raster_processing import (  # pyright: ignore[reportMissingImpo
 )
 from dem_terrain.source_resolver import (  # pyright: ignore[reportMissingImports]
     ADAPTER_ALOS_AW3D30,
+    ADAPTER_ARKANSAS_AGIO,
     ADAPTER_COPERNICUS_GLO30,
     ADAPTER_ILLINOIS_ILHMP,
     ADAPTER_NASADEM,
@@ -85,6 +86,7 @@ from dem_terrain.terrain_derivatives import (  # pyright: ignore[reportMissingIm
     derive_terrain_products,
 )
 from dem_terrain.usgs_tnm import USGSTNMAdapter  # pyright: ignore[reportMissingImports]
+from dem_terrain.arkansas_agio import ArkansasAGIOAdapter  # pyright: ignore[reportMissingImports]
 
 
 CONTROLLED_FAILURE = 2
@@ -99,6 +101,7 @@ SOURCE_POLICIES = (
     "global",
     "usgs-tnm",
     "illinois",
+    "arkansas",
     "nasadem",
     "copernicus-glo30",
     "alos-aw3d30",
@@ -552,14 +555,16 @@ def _adapters_for_policy(source_policy: str, *, allow_live_downloads: bool) -> t
     adapters = list(instantiate_default_adapters())
     replacements = {
         ADAPTER_USGS_TNM: USGSTNMAdapter(network_enabled=allow_live_downloads),
+        ADAPTER_ARKANSAS_AGIO: ArkansasAGIOAdapter(network_enabled=allow_live_downloads),
     }
     adapters = [replacements.get(getattr(adapter, "adapter_id", ""), adapter) for adapter in adapters]
     allowed_by_policy = {
         "auto": None,
-        "us": {ADAPTER_USGS_TNM, ADAPTER_ILLINOIS_ILHMP},
+        "us": {ADAPTER_USGS_TNM, ADAPTER_ILLINOIS_ILHMP, ADAPTER_ARKANSAS_AGIO},
         "global": {ADAPTER_NASADEM, ADAPTER_COPERNICUS_GLO30, ADAPTER_ALOS_AW3D30},
         "usgs-tnm": {ADAPTER_USGS_TNM},
         "illinois": {ADAPTER_ILLINOIS_ILHMP},
+        "arkansas": {ADAPTER_ARKANSAS_AGIO},
         "nasadem": {ADAPTER_NASADEM},
         "copernicus-glo30": {ADAPTER_COPERNICUS_GLO30},
         "alos-aw3d30": {ADAPTER_ALOS_AW3D30},
@@ -605,6 +610,9 @@ def _prepare_source_rasters(
     if selected.adapter_id == ADAPTER_USGS_TNM:
         adapter = USGSTNMAdapter(network_enabled=True)
         return [adapter.download(selected, cache_dir)]
+
+    if selected.adapter_id == ADAPTER_ARKANSAS_AGIO:
+        return ArkansasAGIOAdapter(network_enabled=True).download_all(selected, cache_dir)
 
     if selected.adapter_id in {ADAPTER_NASADEM, ADAPTER_COPERNICUS_GLO30, ADAPTER_ALOS_AW3D30}:
         return _download_global_cog_tiles(selected, cache_dir)
