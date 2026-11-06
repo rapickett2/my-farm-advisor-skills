@@ -89,7 +89,19 @@ required step was completed against that data.
 - **Commit:** this change set (see `git log`)
 
 ### 8. This change log — new
-- `ASSIGNMENT-1-CHANGES.md`.
+- `ASSIGNMENT-1-CHANGES.md` (commit `e28cbee`, with change 7).
+
+### 9. Web map: colour-blind-safe, high-contrast field styling — change
+- **What:** farm colours now come from the **Okabe–Ito** colour-blind-safe palette (orange, sky
+  blue, bluish green, reddish purple, yellow, vermillion, blue). Each outline is a coloured line
+  over a dark casing; fill is stronger on the street map; the selected field gets a thicker dashed
+  outline (state is not shown by hue alone); labels are white on a darker, white-bordered tag;
+  sidebar swatches are bordered. Styles update when the basemap changes.
+- **Why:** reviewing the map, the original bright yellow outlines were faint on the pale Esri
+  street map and the palette was not colour-blind safe. Verified with screenshots on both basemaps.
+- **Docs/tests:** subskill README (colour and contrast row), AGENTS accessibility rule, smoke test
+  checks the palette and the casing.
+- **Commit:** this change set (see `git log`)
 
 ## Problems hit and how they were solved
 

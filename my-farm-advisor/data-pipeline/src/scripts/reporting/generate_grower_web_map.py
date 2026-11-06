@@ -58,7 +58,8 @@ EQUAL_AREA_CRS = "EPSG:5070"
 ACRES_PER_M2 = 1 / 4046.8564224
 SIMPLIFY_M = 0.5
 SIZE_WARN_BYTES = 1_000_000
-FARM_COLORS = ["#ffd400", "#00e5ff", "#ff6ec7", "#7CFC00", "#ff8c00", "#b388ff", "#ff5252", "#64ffda"]
+# Okabe-Ito colour-blind-safe palette (black omitted; it is the outline casing).
+FARM_COLORS = ["#E69F00", "#56B4E9", "#009E73", "#CC79A7", "#F0E442", "#D55E00", "#0072B2"]
 LEAFLET_VERSION = "1.9.4"
 
 
@@ -249,7 +250,7 @@ _TEMPLATE = """<!DOCTYPE html>
   #side button:hover { background: #4a84f5; }
   #list { overflow-y: auto; flex: 1; padding: 4px 0 12px; }
   .farm { padding: 10px 16px 4px; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: #9aa4b2; display: flex; align-items: center; gap: 8px; }
-  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .swatch { width: 11px; height: 11px; border-radius: 2px; display: inline-block; border: 1px solid #fff; }
   .item { padding: 6px 16px 6px 34px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
   .item:hover, .item.active { background: #1f2a38; }
   .item small { color: #9aa4b2; white-space: nowrap; }
@@ -260,7 +261,7 @@ _TEMPLATE = """<!DOCTYPE html>
   .popup table { border-collapse: collapse; font-size: 12.5px; }
   .popup td { padding: 2px 6px 2px 0; vertical-align: top; }
   .popup td:first-child { color: #555; white-space: nowrap; }
-  .field-label { background: rgba(0,0,0,.55); color: #fff; border: 0; box-shadow: none; font-weight: 600; padding: 1px 5px; }
+  .field-label { background: rgba(0,0,0,.78); color: #fff; border: 1px solid rgba(255,255,255,.6); box-shadow: none; font-weight: 600; padding: 1px 5px; }
   .field-label::before { display: none; }
   .labels-off .field-label { display: none; }
   @media (max-width: 700px) { #side { width: 200px; } }
@@ -294,9 +295,23 @@ const labels = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services
   { maxZoom: 20, maxNativeZoom: 19, attribution: "Labels &copy; Esri" });
 L.control.scale({ imperial: true, metric: true }).addTo(map);
 
-const color = slug => (FARMS.find(f => f.slug === slug) || {}).color || "#ffd400";
-const baseStyle = f => ({ color: color(f.properties.farm), weight: 2, fillColor: color(f.properties.farm), fillOpacity: 0.12 });
+// Colour-blind-safe farm colours (Okabe-Ito) drawn over a dark casing, so outlines keep contrast
+// on both dark satellite imagery and the pale street map. Selection uses width + dashes, not hue.
+const color = slug => (FARMS.find(f => f.slug === slug) || {}).color || "#E69F00";
+let onStreets = false;
+let selectedId = null;
+const fillFor = () => (onStreets ? 0.28 : 0.16);
+const baseStyle = f => {
+  const selected = f.properties.id === selectedId;
+  return {
+    color: color(f.properties.farm), weight: selected ? 4 : 2.5, opacity: 1,
+    dashArray: selected ? "8 5" : null, fillColor: color(f.properties.farm),
+    fillOpacity: selected ? fillFor() + 0.14 : fillFor(),
+  };
+};
+const casingStyle = f => ({ color: "#111", weight: f.properties.id === selectedId ? 8 : 5.5, opacity: 0.9, fill: false });
 const layers = {};
+const casing = L.geoJSON(DATA, { style: casingStyle, interactive: false });
 const popupHtml = p => `<div class="popup"><h3>${esc(p.name)}</h3><table>${
   p.info.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table></div>`;
 
@@ -307,13 +322,22 @@ const fields = L.geoJSON(DATA, {
     layers[p.id] = layer;
     layer.bindPopup(popupHtml(p), { maxWidth: 360, autoPanPadding: [30, 30] });
     layer.bindTooltip(esc(p.name), { permanent: true, direction: "center", className: "field-label" });
-    layer.on("mouseover", () => layer.setStyle({ weight: 4, fillOpacity: 0.3 }));
+    layer.on("mouseover", () => layer.setStyle({ weight: 4.5, fillOpacity: fillFor() + 0.18 }));
     layer.on("mouseout", () => layer.setStyle(baseStyle(feature)));
     layer.on("click", () => select(p.id, false));
+    layer.on("popupclose", () => {
+      if (selectedId !== p.id) return;
+      selectedId = null;
+      restyle();
+      document.querySelectorAll(".item.active").forEach(el => el.classList.remove("active"));
+    });
   }
-}).addTo(map);
+});
+const fieldGroup = L.featureGroup([casing, fields]).addTo(map);
+const restyle = () => { casing.setStyle(casingStyle); fields.setStyle(baseStyle); };
+map.on("baselayerchange", e => { onStreets = e.layer === streets; restyle(); });
 
-L.control.layers({ "Satellite (Esri)": imagery, "Streets (Esri)": streets }, { "Place labels": labels, "Fields": fields },
+L.control.layers({ "Satellite (Esri)": imagery, "Streets (Esri)": streets }, { "Place labels": labels, "Fields": fieldGroup },
   { collapsed: false }).addTo(map);
 
 const fitAll = () => map.fitBounds(fields.getBounds(), { padding: [30, 30] });
@@ -326,6 +350,8 @@ function select(id, zoom = true) {
   document.querySelectorAll(".item").forEach(el => el.classList.toggle("active", el.dataset.id === id));
   const layer = layers[id];
   if (!layer) return;
+  selectedId = id;
+  restyle();
   if (zoom) {
     // Open after the zoom animation so auto-pan can fit the popup on screen.
     map.once("moveend", () => layer.openPopup());

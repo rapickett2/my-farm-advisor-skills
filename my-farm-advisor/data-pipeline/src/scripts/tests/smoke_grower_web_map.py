@@ -119,6 +119,10 @@ def main() -> int:
             raise SmokeFailure("satellite basemap, polygons, field list, or fit control missing")
         if "World_Street_Map" not in page or "tile.openstreetmap.org" in page:
             raise SmokeFailure("street basemap must be Esri World Street Map (OSM tiles 403 on file:// pages)")
+        okabe_ito = {"#E69F00", "#56B4E9", "#009E73", "#CC79A7", "#F0E442", "#D55E00", "#0072B2"}
+        farm_colors = re.search(r"const FARMS = (.*?);\n", page).group(1)
+        if not set(re.findall(r"#[0-9A-Fa-f]{6}", farm_colors)) <= okabe_ito or "casingStyle" not in page:
+            raise SmokeFailure("farm colours must come from the Okabe-Ito palette over a dark casing")
         # Data strings live inside JSON in a <script>; "</" must be escaped so they cannot close it.
         if page.count("</script>") != 2 or "South <\\/script>" not in page:
             raise SmokeFailure("embedded data can terminate the script block")
@@ -126,7 +130,7 @@ def main() -> int:
             raise SmokeFailure("embedded image data found")
         if len(page.encode("utf-8")) > 200_000:
             raise SmokeFailure(f"map too large: {len(page)} bytes")
-        print("PASS: Esri satellite + street basemaps, field list, escaping, size budget, no embedded imagery")
+        print("PASS: Esri basemaps, colour-blind-safe cased outlines, field list, escaping, size, no imagery")
 
         before = html_path.read_bytes()
         subprocess.run(command, env=env, cwd=base / "src", check=True, capture_output=True)

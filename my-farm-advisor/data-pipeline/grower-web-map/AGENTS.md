@@ -19,6 +19,8 @@ the user asks for broader data-pipeline changes.
 - Basemaps must work from a downloaded `file://` page: keep to Esri ArcGIS Online tile services
   (World Imagery, World Street Map, reference labels). Do not use `tile.openstreetmap.org`; it
   answers file:// pages with HTTP 403 "Access blocked". The smoke test enforces this.
+- Keep colours accessible: farm colours stay in the Okabe–Ito palette, outlines keep the dark
+  casing for contrast on both basemaps, and state (selection) is never shown by hue alone.
 - Escape every string rendered into the page (HTML-escape server side, `esc()` client side).
 - Generated HTML is runtime output; never commit it.
 

@@ -8,7 +8,8 @@ subskill; it does not depend on `admin/interactive-web-map`.
 
 | Feature | Detail |
 |---|---|
-| Field polygons | Every field of every farm for the grower, read from `farms/<farm>/boundary/field_boundaries.geojson` (the pipeline's canonical boundaries), coloured by farm, labelled when zoomed in (≥ z15) |
+| Field polygons | Every field of every farm for the grower, read from `farms/<farm>/boundary/field_boundaries.geojson` (the pipeline's canonical boundaries), labelled when zoomed in (≥ z15) |
+| Colour and contrast | Farms use the colour-blind-safe **Okabe–Ito** palette (orange, sky blue, bluish green, reddish purple, yellow, vermillion, blue). Each outline is a coloured line over a dark casing, so it stays visible on dark satellite imagery and on the pale street map; fill is slightly stronger on Streets. The selected field is marked by a thicker dashed outline (not by colour alone); labels are white on a dark, white-bordered tag |
 | Basemap | ESRI World Imagery satellite tiles (online); switch to ESRI World Street Map; optional ESRI place-label overlay. All tiles come from `server.arcgisonline.com`, which serves pages opened from disk. OpenStreetMap's standard tile servers are deliberately not used: their tile policy returns HTTP 403 "Access blocked" to `file://` pages (no Referer header), which is how downloaded maps are viewed |
 | Navigation | Zoom/pan, scale bar, **Fit all** button, sidebar field list grouped by farm (natural sort) that zooms to a field and opens its popup, text filter |
 | Click a field | Popup with Grower, Farm, Field, Field ID, Acres, County / State, then any of the optional rows below that exist |
