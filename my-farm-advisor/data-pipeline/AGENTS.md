@@ -60,6 +60,8 @@ cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
 
 Offline importer check: run `src/scripts/tests/smoke_import_boundaries.py` with the runtime venv Python.
 
+Grower web maps: after pipeline runs, use the `grower-web-map/` subskill (read its `SKILL.md`/`AGENTS.md` before editing) and run `scripts/reporting/generate_grower_web_map.py --all-growers` from the runtime source copy. It is standalone, not part of `run_farm_pipeline.py`. Offline check: `src/scripts/tests/smoke_grower_web_map.py`.
+
 Multi-epoch lidar / land-leveling detection is opt-in and not part of `run_farm_pipeline.py`. Use it when the user asks whether fields were leveled or how elevation changed between flights. Dry-run the download first, then compare; always show the per-field PNGs, since straight seams in the dZ panel are data artifacts, not earthwork (see README "Multi-epoch lidar"):
 
 ```bash

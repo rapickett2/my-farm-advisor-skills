@@ -111,6 +111,17 @@ Keep grower boundary files out of Git; only the runtime tree should hold them.
 
 Boundaries are always written 2D: FMIS exports are often PolygonZ, and USDA Soil Data Access silently returns no rows for `POLYGON Z` WKT.
 
+## Grower web maps
+
+After the pipeline runs, generate one interactive HTML map per grower (real field polygons on an ESRI World Imagery basemap, click popups, field list, fit-all) with the [`grower-web-map`](grower-web-map/README.md) subskill:
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/reporting/generate_grower_web_map.py --all-growers
+```
+
+Outputs `growers/<grower>/derived/reports/<grower>_web_map.html` (typically 15–60 KB) and `growers/web_maps_index.html`.
+
 ## Arkansas: 0.5 m terrain by default, 20 cm aerial imagery opt-in
 
 The DEM resolver includes the Arkansas GIS Office `DEM_HALF_METER_2026` service (adapter `arkansas_agio_dem`, see `terrain/dem-terrain/PROVENANCE.md`). For fields inside Arkansas, the normal farm pipeline (which passes `--allow-live-downloads`) selects it ahead of USGS 3DEP 1 m by resolution, so every terrain derivative is computed at 0.5 m; USGS is the automatic fallback if a clip fails coverage checks. Force or exclude it with `--dem-source-policy arkansas` / `usgs-tnm`. Existing fields keep their reusable terrain manifests until you re-run the terrain step with `--force`:
