@@ -129,12 +129,14 @@ PY="${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python"
 
 | Verdict | Rule |
 |---|---|
-| likely leveled | plane-residual roughness drops to ≤ 0.6× and ≥ 20 % of the field changes by more than 0.15 m |
+| likely leveled | interior plane-residual roughness drops to ≤ 0.6× and ≥ 20 % of the field changes by more than 0.15 m |
+| likely leveled (zero grade) | ≥ 20 % changed and the later interior is ≤ 0.025 m rough on a ≤ 0.02 % plane (already-smooth fields re-leveled flat, typical of rice) |
 | uniform shift (check data) | field and its edge moved together (> 0.10 m) without smoothing — a flight-line/calibration offset, not earthwork |
-| possible / localized work | ≥ 5 % changed or roughness ≤ 0.8× |
+| field-wide earthwork (re-graded?) | ≥ 20 % changed otherwise (check the plane-slope change) |
+| localized work | ≥ 5 % changed or roughness ≤ 0.8× |
 | no significant change | otherwise |
 
-Roughness ratios are ignored when the earlier surface was already smoother than 0.05 m. Flags call out field-edge (ditch/road/levee) change, large farm bias, and elevation spikes far above what the field's spread predicts (water surface or void fill). Inter-flight artifacts of 0.05–0.2 m are common: straight N–S/E–W edges in the dZ panel are data seams; curved, field-shaped patterns are earthwork. Offline checks: `scripts/tests/smoke_compare_lidar_epochs.py`.
+Roughness and grade are measured on the field interior (10 m inset) so rebuilt perimeter levees and ditches do not hide leveling. Roughness ratios are ignored when the earlier surface was already smoother than 0.05 m: older 1 m lidar alone reads ~0.03 m on unchanged fields versus ~0.013 m for cell-averaged 0.5 m lidar. Flags call out field-edge (ditch/road/levee) change, large farm bias, and elevation spikes far above what the field's spread predicts (water surface or void fill). Inter-flight artifacts of 0.05–0.2 m are common: straight N–S/E–W edges in the dZ panel are data seams; curved, field-shaped patterns are earthwork. Offline checks: `scripts/tests/smoke_compare_lidar_epochs.py`.
 
 `DATA_PIPELINE_DATA_ROOT` is required. Set it to an absolute writable path outside the skill checkout before running the installer or any pipeline entrypoint. There is no implicit fallback to a platform workspace path or to a checkout-local `data/` directory.
 

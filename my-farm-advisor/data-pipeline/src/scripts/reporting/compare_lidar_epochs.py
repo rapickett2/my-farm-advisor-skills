@@ -81,10 +81,17 @@ WORK_CHANGED_PCT = 5.0
 WORK_ROUGHNESS_RATIO = 0.8
 # Roughness ratios only count when the earlier surface had relief to remove.
 MIN_EARLY_ROUGHNESS_M = 0.05
+# Already-smooth graded fields re-leveled to zero grade (rice) cannot show a
+# roughness drop; recognize the end state instead.
+ZERO_GRADE_ROUGHNESS_M = 0.025
+ZERO_GRADE_SLOPE_PCT = 0.02
 BIAS_WARN_M = 0.10
 EDGE_CHANGE_WARN_M = 0.10
 FLAT_PATCH_WARN_PCT = 20.0
 ELEVATION_SPIKE_WARN_PCT = 8.0
+# Roughness and grade are measured on the field interior so perimeter levees,
+# borders, and ditches (often rebuilt during leveling) do not mask it.
+INTERIOR_INSET_M = 10.0
 ELEVATION_SPIKE_RATIO = 2.5
 
 
@@ -157,6 +164,16 @@ def _verdict(stats: dict) -> str:
     changed = stats["changed_pct"]
     if ratio is not None and ratio <= LEVELED_ROUGHNESS_RATIO and changed >= LEVELED_CHANGED_PCT:
         return "likely leveled"
+    late_rough = stats.get("late_roughness_m")
+    late_slope = stats.get("late_plane_slope_pct")
+    if (
+        changed >= LEVELED_CHANGED_PCT
+        and late_rough is not None
+        and late_rough <= ZERO_GRADE_ROUGHNESS_M
+        and late_slope is not None
+        and late_slope <= ZERO_GRADE_SLOPE_PCT
+    ):
+        return "likely leveled (zero grade)"
     edge = stats.get("edge_dz_m")
     median = stats["median_dz_m"]
     if (
@@ -170,8 +187,10 @@ def _verdict(stats: dict) -> str:
         # Field and its surroundings moved together without smoothing: a local
         # flight-line/calibration offset, not earthwork.
         return "uniform shift (check data)"
+    if changed >= LEVELED_CHANGED_PCT:
+        return "field-wide earthwork (re-graded?)"
     if changed >= WORK_CHANGED_PCT or (ratio is not None and ratio <= WORK_ROUGHNESS_RATIO):
-        return "possible / localized work"
+        return "localized work"
     return "no significant change"
 
 
@@ -243,10 +262,18 @@ def _align(field, lidar_dir: Path, early: dict, late: dict) -> dict:
     inside = geometry_mask([outline.iloc[0]], shape, grid["transform"], invert=True)
     ring_geom = outline.iloc[0].buffer(RING_M).difference(outline.iloc[0].buffer(2.0))
     ring = geometry_mask([ring_geom], shape, grid["transform"], invert=True)
+    interior_geom = outline.iloc[0].buffer(-INTERIOR_INSET_M)
+    interior = (
+        geometry_mask([interior_geom], shape, grid["transform"], invert=True)
+        if not interior_geom.is_empty
+        else inside
+    )
+    if interior.sum() < 0.2 * inside.sum():
+        interior = inside
     dz_raw = z1 - z0
     return {
-        "z0": z0, "z1": z1, "dz_raw": dz_raw, "inside": inside, "grid": grid, "shape": shape,
-        "ring_dz": dz_raw[ring & np.isfinite(dz_raw)],
+        "z0": z0, "z1": z1, "dz_raw": dz_raw, "inside": inside, "interior": interior, "grid": grid,
+        "shape": shape, "ring_dz": dz_raw[ring & np.isfinite(dz_raw)],
     }
 
 
@@ -265,8 +292,9 @@ def _compare(
     fill = float(field_dz[field_dz > NOISE_M].sum() * cell_area) + 0.0
     cut = float(-field_dz[field_dz < -NOISE_M].sum() * cell_area) + 0.0
     field_acres = valid.sum() * cell_area / M2_PER_ACRE
-    early_stats = _plane_stats(z0, inside, grid["res"])
-    late_stats = _plane_stats(z1, inside, grid["res"])
+    interior = aligned["interior"]
+    early_stats = _plane_stats(z0, interior, grid["res"])
+    late_stats = _plane_stats(z1, interior, grid["res"])
 
     stats = {
         "field_id": str(field["field_id"]),
@@ -315,13 +343,18 @@ def _compare(
         ):
             flags.append(
                 f"{stats[f'{prefix}_epoch']}: {stats[f'{prefix}_elevation_spike_pct']}% of cells at "
-                f"{stats[f'{prefix}_elevation_spike_m']} m ±1 cm (water surface or void fill?)"
+                f"{stats[f'{prefix}_elevation_spike_m']} m ±1 cm (zero-grade surface, standing water, "
+                f"or void fill — check imagery)"
             )
     stats["flags"] = "; ".join(flags)
     stats["thresholds"] = (
         f"noise {NOISE_M} m; leveled = roughness ratio <= {LEVELED_ROUGHNESS_RATIO} and changed >= "
-        f"{LEVELED_CHANGED_PCT}%; work = changed >= {WORK_CHANGED_PCT}% or ratio <= {WORK_ROUGHNESS_RATIO}; "
-        f"ratios ignored when earlier roughness < {MIN_EARLY_ROUGHNESS_M} m; uniform shift = field and edge "
+        f"{LEVELED_CHANGED_PCT}%; field-wide earthwork = changed >= {LEVELED_CHANGED_PCT}% otherwise; "
+        f"localized work = changed >= {WORK_CHANGED_PCT}% or ratio <= {WORK_ROUGHNESS_RATIO}; "
+        f"ratios ignored when earlier roughness < {MIN_EARLY_ROUGHNESS_M} m; zero grade = changed >= "
+        f"{LEVELED_CHANGED_PCT}%, later interior roughness <= {ZERO_GRADE_ROUGHNESS_M} m and plane slope <= "
+        f"{ZERO_GRADE_SLOPE_PCT}%; roughness/slope on the field interior ({INTERIOR_INSET_M:g} m inset); "
+        f"uniform shift = field and edge "
         f"moved together (> {EDGE_CHANGE_WARN_M} m, within {NOISE_M} m of each other) without smoothing"
     )
 
