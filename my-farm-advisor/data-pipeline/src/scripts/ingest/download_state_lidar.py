@@ -24,13 +24,10 @@ Outputs per field (runtime tree, never Git):
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import math
 import os
 import re
 import sys
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -45,9 +42,8 @@ ensure_runtime_environment()
 import geopandas as gpd
 import numpy as np
 import rasterio
-import requests
-from rasterio.merge import merge
 
+from arcgis_imageserver import export_clip, new_session, request_json, service_info, sha256_file
 from naming import slugify
 from paths import farm_boundary_path, farm_manifest_dir, field_terrain_dir
 from reporting_bootstrap import field_slug_map_from_inventory
@@ -59,35 +55,9 @@ DEFAULT_SERVICES = (
 )
 DEFAULT_ATTRIBUTION = "Arkansas GIS Office (gis.arkansas.gov), statewide and county lidar DEMs"
 NODATA = -9999.0
-MAX_ROWS = 4000
-MAX_COLS = 14000
-USER_AGENT = "my-farm-advisor-data-pipeline/state-lidar"
 _YEAR_RE = re.compile(r"(19|20)\d{2}")
 
 
-def _request_json(session: requests.Session, url: str, params: dict) -> dict:
-    for attempt in range(3):
-        try:
-            response = session.get(url, params={**params, "f": "json"}, timeout=90)
-            response.raise_for_status()
-            payload = response.json()
-            if "error" in payload:
-                raise RuntimeError(payload["error"])
-            return payload
-        except (requests.RequestException, RuntimeError, ValueError):
-            if attempt == 2:
-                raise
-            time.sleep(2 * (attempt + 1))
-    raise AssertionError("unreachable")
-
-
-def _service_info(session: requests.Session, service_url: str) -> dict:
-    info = _request_json(session, service_url, {})
-    sr = info.get("spatialReference") or {}
-    wkid = sr.get("latestWkid") or sr.get("wkid")
-    if not wkid:
-        raise RuntimeError(f"service has no spatial reference wkid: {service_url}")
-    return {"wkid": int(wkid), "name": info.get("name") or service_url.rstrip("/").split("/")[-2]}
 
 
 def _epoch_for(item_name: str, service_name: str) -> str:
@@ -99,11 +69,11 @@ def _epoch_for(item_name: str, service_name: str) -> str:
 
 
 def _collections_for(
-    session: requests.Session, service_url: str, bounds: tuple[float, ...], wkid: int
+    session, service_url: str, bounds: tuple[float, ...], wkid: int
 ) -> list[dict]:
     x0, y0, x1, y1 = bounds
     envelope = {"xmin": x0, "ymin": y0, "xmax": x1, "ymax": y1, "spatialReference": {"wkid": wkid}}
-    payload = _request_json(
+    payload = request_json(
         session,
         f"{service_url}/query",
         {
@@ -119,104 +89,7 @@ def _collections_for(
     return sorted(items, key=lambda item: (str(item.get("Name")), int(item["OBJECTID"])))
 
 
-def _snap(bounds: tuple[float, ...], pixel: float) -> tuple[float, float, float, float]:
-    x0, y0, x1, y1 = bounds
-    return (
-        math.floor(x0 / pixel) * pixel,
-        math.floor(y0 / pixel) * pixel,
-        math.ceil(x1 / pixel) * pixel,
-        math.ceil(y1 / pixel) * pixel,
-    )
 
-
-def _export_strip(
-    session: requests.Session,
-    service_url: str,
-    bounds: tuple[float, float, float, float],
-    pixel: float,
-    wkid: int,
-    object_id: int,
-) -> bytes:
-    x0, y0, x1, y1 = bounds
-    cols = int(round((x1 - x0) / pixel))
-    rows = int(round((y1 - y0) / pixel))
-    params = {
-        "bbox": f"{x0},{y0},{x1},{y1}",
-        "bboxSR": wkid,
-        "imageSR": wkid,
-        "size": f"{cols},{rows}",
-        "format": "tiff",
-        "pixelType": "F32",
-        "noData": NODATA,
-        "noDataInterpretation": "esriNoDataMatchAny",
-        "interpolation": "RSP_NearestNeighbor",
-        "mosaicRule": json.dumps(
-            {"mosaicMethod": "esriMosaicLockRaster", "lockRasterIds": [object_id]}
-        ),
-        "f": "image",
-    }
-    for attempt in range(3):
-        try:
-            response = session.get(f"{service_url}/exportImage", params=params, timeout=180)
-            response.raise_for_status()
-            if "tiff" not in response.headers.get("content-type", ""):
-                raise RuntimeError(response.text[:300])
-            return response.content
-        except (requests.RequestException, RuntimeError):
-            if attempt == 2:
-                raise
-            time.sleep(3 * (attempt + 1))
-    raise AssertionError("unreachable")
-
-
-def _export_collection(
-    session: requests.Session,
-    service_url: str,
-    bounds: tuple[float, ...],
-    pixel: float,
-    wkid: int,
-    object_id: int,
-    target: Path,
-) -> None:
-    x0, y0, x1, y1 = _snap(bounds, pixel)
-    if (x1 - x0) / pixel > MAX_COLS:
-        raise RuntimeError(f"field too wide for one export at {pixel} m ({target.name})")
-    strip_height = MAX_ROWS * pixel
-    datasets = []
-    memfiles = []
-    try:
-        top = y1
-        while top > y0 + 1e-6:
-            bottom = max(y0, top - strip_height)
-            content = _export_strip(session, service_url, (x0, bottom, x1, top), pixel, wkid, object_id)
-            memfile = rasterio.MemoryFile(content)
-            memfiles.append(memfile)
-            datasets.append(memfile.open())
-            top = bottom
-        mosaic, transform = merge(datasets, res=pixel, nodata=NODATA)
-        profile = {
-            "driver": "GTiff",
-            "dtype": "float32",
-            "count": 1,
-            "height": mosaic.shape[1],
-            "width": mosaic.shape[2],
-            "crs": datasets[0].crs,
-            "transform": transform,
-            "nodata": NODATA,
-            "compress": "deflate",
-            "predictor": 3,
-            "tiled": True,
-        }
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_suffix(".tmp.tif")
-        with rasterio.open(tmp, "w", **profile) as dst:
-            dst.write(mosaic.astype("float32"))
-        tmp.replace(target)
-    finally:
-        for dataset in datasets:
-            dataset.close()
-        for memfile in memfiles:
-            memfile.close()
 
 
 def _coverage(path: Path, field_geom) -> dict:
@@ -236,16 +109,9 @@ def _coverage(path: Path, field_geom) -> dict:
     }
 
 
-def _sha256(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(65536), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
 
 def _process_field(
-    session: requests.Session,
+    session,
     services: list[dict],
     field,
     field_slug: str,
@@ -294,13 +160,20 @@ def _process_field(
                 not force
                 and reusable
                 and target.exists()
-                and reusable.get("sha256") == _sha256(target)
+                and reusable.get("sha256") == sha256_file(target)
             ):
                 print(f"  skip  {field_slug:<24} {epoch}  {name} (manifest+file reusable)")
                 entries.append(reusable)
                 continue
-            _export_collection(
-                session, service["url"], bounds, pixel, service["wkid"], entry["object_id"], target
+            export_clip(
+                session,
+                service["url"],
+                bounds,
+                pixel=pixel,
+                wkid=service["wkid"],
+                target=target,
+                nodata=NODATA,
+                mosaic_rule={"mosaicMethod": "esriMosaicLockRaster", "lockRasterIds": [entry["object_id"]]},
             )
             entry.update(_coverage(target, field_proj))
             entry["downloaded_at"] = (
@@ -314,7 +187,7 @@ def _process_field(
                 entries.append(entry)
                 continue
             entry["status"] = "ok"
-            entry["sha256"] = _sha256(target)
+            entry["sha256"] = sha256_file(target)
             print(
                 f"  ok    {field_slug:<24} {epoch}  {name} ({pixel} m) "
                 f"coverage {entry['field_coverage_pct']}%"
@@ -358,10 +231,9 @@ def main(argv: list[str] | None = None) -> None:
     fields = gpd.read_file(boundary).to_crs("EPSG:4326")
     slugs = field_slug_map_from_inventory(farm_manifest_dir(args.grower, args.farm) / "field-inventory.csv")
 
-    session = requests.Session()
-    session.headers["User-Agent"] = USER_AGENT
+    session = new_session()
     service_urls = args.service or list(DEFAULT_SERVICES)
-    services = [{"url": url.rstrip("/"), **_service_info(session, url.rstrip("/"))} for url in service_urls]
+    services = [{"url": url.rstrip("/"), **service_info(session, url.rstrip("/"))} for url in service_urls]
 
     print("=" * 60)
     print(f"State lidar collections: {args.grower}/{args.farm}")

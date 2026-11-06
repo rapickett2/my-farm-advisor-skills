@@ -111,6 +111,24 @@ Keep grower boundary files out of Git; only the runtime tree should hold them.
 
 Boundaries are always written 2D: FMIS exports are often PolygonZ, and USDA Soil Data Access silently returns no rows for `POLYGON Z` WKT.
 
+## Arkansas: 0.5 m terrain by default, 20 cm aerial imagery opt-in
+
+The DEM resolver includes the Arkansas GIS Office `DEM_HALF_METER_2026` service (adapter `arkansas_agio_dem`, see `terrain/dem-terrain/PROVENANCE.md`). For fields inside Arkansas, the normal farm pipeline (which passes `--allow-live-downloads`) selects it ahead of USGS 3DEP 1 m by resolution, so every terrain derivative is computed at 0.5 m; USGS is the automatic fallback if a clip fails coverage checks. Force or exclude it with `--dem-source-policy arkansas` / `usgs-tnm`. Existing fields keep their reusable terrain manifests until you re-run the terrain step with `--force`:
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/ingest/download_dem_terrain.py --grower <grower> --farm <farm> --allow-live-downloads --force
+```
+
+Aerial orthoimagery is opt-in and not part of `run_farm_pipeline.py`. `download_state_orthoimagery.py` clips any ArcGIS ImageServer per field (default: Arkansas 2023 ADOP Nine Inch Ortho, 20 cm RGB, flown leaf-off 2023-01-19..02-28). Clips are exported in a true-metre CRS (default EPSG:26915, not the service's Web Mercator), field + 20 m, tiled in ≤2048 px blocks (the service returns HTTP 500 for ~13+ Mpx reprojected requests), JPEG-compressed (~1–6 MB per field), with a per-field preview PNG:
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/ingest/download_state_orthoimagery.py --grower <grower> --farm <farm> --dry-run
+```
+
+Outputs: `fields/<field>/satellite/aerial/<label>_rgb.tif` + `manifest.json` (service, request URLs, flight dates, attribution, coverage, sha256) and `fields/<field>/derived/reports/aerial_<label>.png`. The service exposes RGB only (the original 4-band NIR delivery is download-only), so no NDVI is produced. Leaf-off imagery is most useful for soil-colour patterns, drainage, levees, and checking lidar change verdicts. Other states: `--service`, `--label`, `--acquired`, `--attribution`, `--pixel-size`, `--crs`.
+
 ## Multi-epoch lidar and land-leveling detection (opt-in)
 
 Where a state publishes several lidar flights as ArcGIS ImageServers, clip every collection that covers each field, then compare the flights. Defaults target the Arkansas GIS Office (free public services): `DEM_HALF_METER_2026` (0.5 m statewide, epoch 2026) and `DEM_1M_2018` (a mosaic of 2011–2014 county collections; each export is locked to one named collection, and the epoch is parsed from its name). Other states: pass `--service <ImageServer URL>` (repeatable).

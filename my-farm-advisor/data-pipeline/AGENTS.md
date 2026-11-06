@@ -71,6 +71,8 @@ cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
 
 Offline comparison check: `src/scripts/tests/smoke_compare_lidar_epochs.py` with the runtime venv Python.
 
+Arkansas fields resolve terrain to the Arkansas GIS Office 0.5 m DEM automatically during normal pipeline runs (`--dem-source-policy arkansas` forces it). Aerial orthoimagery is opt-in: `scripts/ingest/download_state_orthoimagery.py --grower <grower> --farm <farm>` (dry-run first; defaults to the Arkansas 2023 ADOP 20 cm leaf-off RGB). Offline adapter check: `src/scripts/tests/smoke_arkansas_dem_adapter.py`.
+
 Current-shell export for an existing runtime:
 
 ```bash
