@@ -4,7 +4,8 @@ description: >
   Generate one lightweight, self-contained interactive HTML web map per grower from data-pipeline
   outputs: real field boundary polygons on an online ESRI World Imagery satellite basemap, click
   popups with grower / farm / field metadata (plus soil, crop history, NDVI, terrain, and lidar
-  change when present), a field list that zooms to each field, and a fit-all control.
+  change when present), a field list that zooms to each field, a fit-all control, an SSURGO soil
+  layer with a series/drainage legend, and per-field average NDVI maps for each crop.
 ---
 
 # Grower Web Map

@@ -25,6 +25,9 @@ import tempfile
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
+import rasterio
+from rasterio.transform import from_bounds
 from shapely.geometry import box
 
 SCRIPT_PATH = Path(__file__).resolve()
@@ -90,6 +93,35 @@ def main() -> int:
             "field_id,dominant_soil,drainage_class,avg_ph,avg_om_pct\nf-2,Sharkey,Poorly drained,6.1,2.3\n",
             encoding="utf-8",
         )
+        # Two SSURGO map units splitting field f-2 (box -90.79..-90.786).
+        gpd.GeoDataFrame(
+            [{"mukey": "100", "geometry": box(-90.79, 35.60, -90.788, 35.604)},
+             {"mukey": "200", "geometry": box(-90.788, 35.60, -90.786, 35.604)}],
+            crs="EPSG:4326",
+        ).to_file(soil / "ssurgo_soil_types.geojson")
+        (soil / "ssurgo_full.csv").write_text(
+            "field_id,mukey,compname,comppct_r,drainagecl,hzdept_r,hzdepb_r,om_r,ph1to1h2o_r,awc_r,claytotal_r,sandtotal_r\n"
+            "f-2,100,Sharkey,85,Poorly drained,0,15,2.3,6.1,0.2,55,5\n"
+            "f-2,100,Sharkey,85,Poorly drained,15,50,1.0,6.5,0.2,60,4\n"
+            "f-2,100,Minor,15,Well drained,0,15,1.0,6.0,0.2,20,40\n"
+            "f-2,200,Dundee,90,Somewhat poorly drained,0,20,1.4,5.8,0.21,22,18\n",
+            encoding="utf-8",
+        )
+        # NDVI composites for field f-1 (box -90.78..-90.776): Soybeans 2021 (0.3), 2022 (0.5); 2024 Unknown.
+        features_dir = north / "fields" / "f-1" / "derived" / "features"
+        features_dir.mkdir(parents=True, exist_ok=True)
+        years = []
+        for year, crop, value in ((2021, "Soybeans", 0.3), (2022, "Soybeans", 0.5), (2024, "Unknown", 0.9)):
+            tif = features_dir / f"ndvi_year_{year}_composite.tif"
+            with rasterio.open(tif, "w", driver="GTiff", width=40, height=40, count=1, dtype="float32",
+                               crs="EPSG:4326", transform=from_bounds(-90.7805, 35.5995, -90.7755, 35.6045, 40, 40),
+                               nodata=-9999) as dst:
+                dst.write(np.full((40, 40), value, dtype="float32"), 1)
+            years.append({"year": year, "crop_name": crop, "scene_count": 9,
+                          "composite_tif": str(tif.relative_to(base))})
+        summaries = north / "fields" / "f-1" / "derived" / "summaries"
+        summaries.mkdir(parents=True, exist_ok=True)
+        (summaries / "ndvi_yearly_summary.json").write_text(json.dumps({"years": years}), encoding="utf-8")
         (base / "growers" / "smoke-grower" / "grower.json").write_text('{"display_name": "smoke-grower"}', encoding="utf-8")
 
         command = [sys.executable, "scripts/reporting/generate_grower_web_map.py", "--all-growers"]
@@ -126,11 +158,33 @@ def main() -> int:
         # Data strings live inside JSON in a <script>; "</" must be escaped so they cannot close it.
         if page.count("</script>") != 2 or "South <\\/script>" not in page:
             raise SmokeFailure("embedded data can terminate the script block")
-        if "data:image" in page or "base64" in page:
-            raise SmokeFailure("embedded image data found")
-        if len(page.encode("utf-8")) > 200_000:
+        ndvi = json.loads(re.search(r"const NDVI = (.*?);\n", page).group(1))
+        layers = ndvi.get("north-farm/f-1", [])
+        if [layer["crop"] for layer in layers] != ["Soybeans"] or layers[0]["years"] != [2021, 2022]:
+            raise SmokeFailure(f"NDVI must average per crop and skip Unknown years: {layers}")
+        if abs(layers[0]["mean"] - 0.4) > 0.01:
+            raise SmokeFailure(f"average soybean NDVI should be 0.40, got {layers[0]['mean']}")
+        # The per-field, per-crop NDVI maps are the only embedded images.
+        if page.count("data:image/png;base64,") != sum(len(v) for v in ndvi.values()) or "data:image/jpeg" in page:
+            raise SmokeFailure("embedded images other than the NDVI crop maps found")
+        print("PASS: average NDVI per crop (Unknown skipped) embedded as the only images")
+
+        soils = json.loads(re.search(r"const SOILS = (.*?);\n", page).group(1))["features"]
+        legend = json.loads(re.search(r"const SOIL_LEGEND = (.*?);\n", page).group(1))
+        if len(soils) != 2 or {s["name"] for s in legend["series"]} != {"Dundee", "Sharkey"}:
+            raise SmokeFailure(f"soil units / legend wrong: {len(soils)} {legend['series']}")
+        sharkey = next(s for s in soils if s["properties"]["series"] == "Sharkey")["properties"]
+        info = dict(sharkey["info"])
+        if info.get("Topsoil pH") != "6.1" or info.get("Drainage") != "Poorly drained" or "Area in field" not in info:
+            raise SmokeFailure(f"soil popup must use the dominant component's topsoil: {info}")
+        if [d["name"] for d in legend["drainage"]] != ["Poorly drained", "Somewhat poorly drained"]:
+            raise SmokeFailure(f"drainage legend must be ordered wet to dry: {legend['drainage']}")
+        if "SSURGO soils" not in page or "renderLegend" not in page:
+            raise SmokeFailure("soils overlay or legend missing")
+        print("PASS: SSURGO soil layer, dominant-component popups, series + drainage legends")
+        if len(page.encode("utf-8")) > 500_000:
             raise SmokeFailure(f"map too large: {len(page)} bytes")
-        print("PASS: Esri basemaps, colour-blind-safe cased outlines, field list, escaping, size, no imagery")
+        print("PASS: Esri basemaps, colour-blind-safe cased outlines, field list, escaping, 500 KB budget")
 
         before = html_path.read_bytes()
         subprocess.run(command, env=env, cwd=base / "src", check=True, capture_output=True)

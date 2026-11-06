@@ -120,7 +120,7 @@ After the pipeline runs, generate one interactive HTML map per grower (real fiel
   scripts/reporting/generate_grower_web_map.py --all-growers
 ```
 
-Outputs `growers/<grower>/derived/reports/<grower>_web_map.html` (typically 15–60 KB) and `growers/web_maps_index.html`.
+Outputs `growers/<grower>/derived/reports/<grower>_web_map.html` (typically 95–125 KB with the SSURGO soil layer and per-crop NDVI maps) and `growers/web_maps_index.html`.
 
 ## Arkansas: 0.5 m terrain by default, 20 cm aerial imagery opt-in
 

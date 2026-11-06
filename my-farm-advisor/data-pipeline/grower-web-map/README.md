@@ -12,7 +12,10 @@ subskill; it does not depend on `admin/interactive-web-map`.
 | Colour and contrast | Farms use the colour-blind-safe **Okabe–Ito** palette (orange, sky blue, bluish green, reddish purple, yellow, vermillion, blue). Each outline is a coloured line over a dark casing, so it stays visible on dark satellite imagery and on the pale street map; fill is slightly stronger on Streets. The selected field is marked by a thicker dashed outline (not by colour alone); labels are white on a dark, white-bordered tag |
 | Basemap | ESRI World Imagery satellite tiles (online); switch to ESRI World Street Map; optional ESRI place-label overlay. All tiles come from `server.arcgisonline.com`, which serves pages opened from disk. OpenStreetMap's standard tile servers are deliberately not used: their tile policy returns HTTP 403 "Access blocked" to `file://` pages (no Referer header), which is how downloaded maps are viewed |
 | Navigation | Zoom/pan, scale bar, **Fit all** button, sidebar field list grouped by farm (natural sort) that zooms to a field and opens its popup, text filter |
-| Click a field | Popup with Grower, Farm, Field, Field ID, Acres, County / State, then any of the optional rows below that exist |
+| Click a field | Popup with Grower, Farm, Field, Field ID, Acres, County / State, then any of the optional rows below that exist, and an **Average NDVI by crop** section |
+| SSURGO soils (overlay, off by default) | Each field's SSURGO map units (`fields/<field>/soil/ssurgo_soil_types.geojson`) under the field outlines, coloured by **soil series** (Paul Tol "muted" colour-blind-safe palette, Water in cyan) or by **drainage class** (cividis, dark blue = wet to yellow = dry). Click a unit for series, share of map unit, drainage, topsoil pH / OM / clay / sand / AWC (dominant component, shallowest horizon from `soil/ssurgo_full.csv`), map unit key, and acres / % of the field. While soils are on, field fills turn off so units are clickable |
+| Average NDVI by crop | For each field, the yearly NDVI composites (`derived/features/ndvi_year_<year>_composite.tif`) are grouped by that year's crop (`ndvi_yearly_summary.json`, from CDL) and averaged pixel by pixel; years labelled "Unknown" are skipped (the default CDL history ends in 2023). Popup buttons ("Average Soybeans NDVI · 2021, 2023 · mean 0.35") overlay that field's map at native 10 m; **Show for all fields** compares every field for that crop |
+| Legend | Bottom-right panel that appears with the active layer: soil series with drainage and acres (Series / Drainage switch), and the NDVI ramp (viridis, colour-blind safe) with years, scenes, and field mean. The NDVI ramp is stretched to the grower's 2nd–98th percentile (rounded to 0.05), shared by every field on that map |
 
 Optional popup rows (skipped silently when the pipeline step has not produced them):
 
@@ -30,9 +33,11 @@ when present, falling back to `grower.json` / `farm.json` display names and the 
 
 ## Size and determinism
 
-- Only vector polygons and short text are embedded: geometries are simplified (~0.5 m, topology
-  preserving, in EPSG:5070) and rounded to 1e-6°. No rasters, imagery, or data bundles. Typical
-  output is 15–60 KB per grower; the script warns above 1 MB.
+- Embedded: vector polygons (fields, soil units; simplified ~0.5 m, topology preserving, in
+  EPSG:5070, rounded to 1e-6°), short text, and the per-field average-NDVI-by-crop maps — small
+  field-clipped, native 10 m, colourised PNGs (a few KB each). No raw imagery, aerial photos, other
+  rasters, or data bundles. Typical output is 95–125 KB per grower; the script warns above 1 MB and
+  the smoke test enforces 500 KB.
 - Leaflet 1.9.4 and the basemap tiles load from the internet at view time.
 - Same pipeline data in, same HTML out: fields are sorted, JSON keys are sorted, and no run
   timestamp is written.
