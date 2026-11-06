@@ -167,7 +167,11 @@ def main() -> int:
         # The per-field, per-crop NDVI maps are the only embedded images.
         if page.count("data:image/png;base64,") != sum(len(v) for v in ndvi.values()) or "data:image/jpeg" in page:
             raise SmokeFailure("embedded images other than the NDVI crop maps found")
-        print("PASS: average NDVI per crop (Unknown skipped) embedded as the only images")
+        scale = json.loads(re.search(r"const NDVI_SCALE = (.*?);\n", page).group(1))
+        rgb = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in (scale["colors"][0], scale["colors"][-1])]
+        if not (rgb[0][0] > rgb[0][1] and rgb[1][1] > rgb[1][0]):
+            raise SmokeFailure(f"NDVI ramp must run red (low) to green (high): {scale['colors']}")
+        print("PASS: average NDVI per crop (Unknown skipped), red-to-green ramp, only embedded images")
 
         soils = json.loads(re.search(r"const SOILS = (.*?);\n", page).group(1))["features"]
         legend = json.loads(re.search(r"const SOIL_LEGEND = (.*?);\n", page).group(1))

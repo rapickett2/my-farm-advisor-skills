@@ -14,8 +14,8 @@ grower / farm / field metadata, a field list that zooms to each field, and a
 or drainage, with a legend and per-unit popups) and, per field, the average
 NDVI map for each crop (mean of the yearly composites for the years that crop
 was grown, per the CDL labels; "Unknown" years skipped). The NDVI maps are the
-only embedded images: field-clipped, native 10 m, colourised PNGs on a viridis
-ramp stretched to the grower's 2nd-98th NDVI percentile (one scale per map). No raw imagery, rasters, or data bundles are embedded;
+only embedded images: field-clipped, native 10 m, colourised PNGs on a red-yellow-green
+ramp (red = low) stretched to the grower's 2nd-98th NDVI percentile (one scale per map). No raw imagery, rasters, or data bundles are embedded;
 polygons are simplified (~0.5 m) and rounded to 1e-6 degrees. Output is
 deterministic: same pipeline data in, same HTML out.
 
@@ -104,7 +104,11 @@ DRAINAGE_COLORS = {
     name: _hex(matplotlib.colormaps["cividis"](i / (len(DRAINAGE_CLASSES) - 1)))
     for i, name in enumerate(DRAINAGE_CLASSES)
 }
-NDVI_GRADIENT = [_hex(matplotlib.colormaps["viridis"](i / 8)) for i in range(9)]
+# Classic agronomy NDVI ramp: red (low) -> yellow -> green (high), per user preference.
+# Note: red-green ramps are hard for red-green colour-blind viewers; the soil layer and field
+# outlines stay colour-blind safe.
+NDVI_COLORMAP = "RdYlGn"
+NDVI_GRADIENT = [_hex(matplotlib.colormaps[NDVI_COLORMAP](i / 8)) for i in range(9)]
 
 
 # --------------------------------------------------------------------------- data
@@ -284,9 +288,9 @@ def _ndvi_scale(ndvi: dict[str, list[dict]]) -> tuple[float, float]:
 
 
 def _ndvi_png(values: np.ndarray, vmin: float, vmax: float) -> str:
-    """Colourise an NDVI array (NaN = transparent) on a viridis ramp; return a PNG data URL."""
+    """Colourise an NDVI array (NaN = transparent) on the red-yellow-green ramp; return a PNG data URL."""
     scaled = np.clip((values - vmin) / (vmax - vmin), 0, 1)
-    rgba = (matplotlib.colormaps["viridis"](np.nan_to_num(scaled)) * 255).astype("uint8")
+    rgba = (matplotlib.colormaps[NDVI_COLORMAP](np.nan_to_num(scaled)) * 255).astype("uint8")
     rgba[..., 3] = np.where(np.isfinite(values), 235, 0)
     buffer = io.BytesIO()
     Image.fromarray(rgba, "RGBA").save(buffer, format="PNG", optimize=True)

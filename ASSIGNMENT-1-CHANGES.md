@@ -122,6 +122,15 @@ required step was completed against that data.
   NDVI: dominant-component popups, ordered drainage legend, Unknown years excluded, mean 0.40).
 - **Commit:** `2d5b00f`
 
+### 11. Web map: NDVI ramp changed to red → yellow → green — change
+- **What:** average-NDVI overlays and their legend use the classic agronomy `RdYlGn` ramp (red = low
+  NDVI, yellow = middle, green = high) instead of viridis, still stretched per grower. The colormap
+  is one constant (`NDVI_COLORMAP`); the smoke test checks the ramp runs red to green.
+- **Why:** my preference after reviewing the map — red/green reads as poor/good crop vigour at a
+  glance. Trade-off noted in the README: red–green ramps are hard for red-green colour-blind viewers;
+  the soil layer and field outlines stay colour-blind safe.
+- **Commit:** this change set (see `git log`)
+
 ## Problems hit and how they were solved
 
 | Problem | Fix |
