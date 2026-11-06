@@ -218,7 +218,7 @@ keys, logins, or paid services anywhere in the default path.
 
 | Capability | Regional / national tier (best available) | Global floor (always works) |
 | --- | --- | --- |
-| **Terrain** | USGS The National Map — 3DEP DEM at 1 m / 1/9° / 1/3° / 2 m / 10 m where mapped (US); ILHMP LiDAR (Illinois, sub-metre) | Copernicus DEM GLO-30 (COG), NASADEM 1″, ALOS AW3D30 — resolution-ranked auto-selection with full derivative suite (slope, aspect, hillshade, D8 flow, contours) |
+| **Terrain** | USGS The National Map — 3DEP DEM at 1 m / 1/9° / 1/3° / 2 m / 10 m where mapped (US); ILHMP LiDAR (Illinois, sub-metre); Arkansas GIS Office 0.5 m + county lidar epochs (opt-in change detection) | Copernicus DEM GLO-30 (COG), NASADEM 1″, ALOS AW3D30 — resolution-ranked auto-selection with full derivative suite (slope, aspect, hillshade, D8 flow, contours) |
 | **Field boundaries** | USDA Crop Sequence Boundaries (US, field-level polygons every year) | OSM/Overpass farm rules (CA, AU, anywhere) + new-country checklist in [`field-boundary-sources.md`](my-farm-advisor/data-pipeline/references/field-boundary-sources.md) |
 | **Soil** | SSURGO (US, tested/method flags); Ontario detailed soil survey (CA); Soil Atlas of Australia via Gaia-DAP (AU) | SoilGrids 250 m with verified scale table; country-aware routing in [`soil-routing.md`](my-farm-advisor/soil/soil-routing.md) |
 | **Crop rotation history** | USDA CDL, 2008→ (US); AAFC ACI, 2017→ (CA) | Per-year WorldCereal default-model inference on keyless Sentinel-2 (any country) — see below |
@@ -251,6 +251,7 @@ forking:
 | --- | --- | --- |
 | ✅ Wired | US | USGS 3DEP (1 m / 1/9° / 1/3° / 2 m / 10 m, auto-resolved per field) |
 | ✅ Wired | Illinois | ILHMP LiDAR (sub-metre) |
+| ✅ Opt-in | Arkansas | Arkansas GIS Office 0.5 m 2026 statewide lidar DEM + 2011–2014 county 1 m collections, clipped per field and per flight (`download_state_lidar.py`) for multi-epoch leveling / earthwork change detection (`compare_lidar_epochs.py`); not yet ranked in the default resolver |
 | 🔜 Next | Canada | NRCan **CanElevation** series: HRDEM/HRDEM Mosaic 10 m LiDAR-derived (186,000+ km² released), CCO 10 m, and open-licensed point clouds — Open Government Licence (Canada), attribution-required, account-free |
 | 🔜 Next | Australia | **ELVIS** (Geoscience Australia's free national elevation portal: state LiDAR + DEMs under ICSM), Vicmap 10 m + LiDAR DEM collections (Victoria), GA SRTM 1″ national DEM-H/DEM-S |
 | 📋 Catalogued | Europe / Japan / NZ | UK Environment Agency LiDAR (2/5 m), Netherlands AHN, Japan GSI 5 m, NZ LINZ — mostly open national programs; onboarding follows the same adapter checklist |

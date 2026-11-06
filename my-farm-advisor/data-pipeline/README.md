@@ -109,6 +109,33 @@ Column names default to the common FMIS export layout (`CLIENT_NAM`, `FARM_NAME`
 
 Keep grower boundary files out of Git; only the runtime tree should hold them.
 
+Boundaries are always written 2D: FMIS exports are often PolygonZ, and USDA Soil Data Access silently returns no rows for `POLYGON Z` WKT.
+
+## Multi-epoch lidar and land-leveling detection (opt-in)
+
+Where a state publishes several lidar flights as ArcGIS ImageServers, clip every collection that covers each field, then compare the flights. Defaults target the Arkansas GIS Office (free public services): `DEM_HALF_METER_2026` (0.5 m statewide, epoch 2026) and `DEM_1M_2018` (a mosaic of 2011–2014 county collections; each export is locked to one named collection, and the epoch is parsed from its name). Other states: pass `--service <ImageServer URL>` (repeatable).
+
+```bash
+cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
+PY="${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python"
+"$PY" scripts/ingest/download_state_lidar.py --grower mfp --farm farm-1723 --dry-run
+"$PY" scripts/ingest/download_state_lidar.py --grower mfp --farm farm-1723
+"$PY" scripts/reporting/compare_lidar_epochs.py --grower mfp --farm farm-1723
+```
+
+`download_state_lidar.py` writes raw float32 clips (native CRS, snapped to each collection's pixel grid, field + 20 m buffer, split into strips under the 4100 px export limit) to `fields/<field>/terrain/state_lidar/<epoch>_<collection>.tif`, plus a manifest with service URL, collection, field coverage, sha256, and attribution. Collections whose footprint touches a field but hold no pixels there are recorded as `empty`. Re-runs skip clips whose manifest hash still matches; `--force` re-exports.
+
+`compare_lidar_epochs.py` picks the best collection per epoch and, for every epoch pair, aligns both surfaces on the coarser grid (finer one cell-averaged) and computes dZ = later − earlier. One vertical bias per farm and collection pair (median dZ over the rings just outside all fields) is removed, because datum/geoid and processing offsets are farm-wide while earthwork is local; each field's own edge change is reported separately. It writes per-field dZ GeoTIFFs, JSON stats, a 4-panel PNG (both hillshades, dZ map with cut red / fill blue, elevation histograms), `derived/tables/<farm>_lidar_change_summary.csv`, and `derived/reports/<farm>_lidar_change.md`. Verdicts are rule-based with thresholds printed in every output:
+
+| Verdict | Rule |
+|---|---|
+| likely leveled | plane-residual roughness drops to ≤ 0.6× and ≥ 20 % of the field changes by more than 0.15 m |
+| uniform shift (check data) | field and its edge moved together (> 0.10 m) without smoothing — a flight-line/calibration offset, not earthwork |
+| possible / localized work | ≥ 5 % changed or roughness ≤ 0.8× |
+| no significant change | otherwise |
+
+Roughness ratios are ignored when the earlier surface was already smoother than 0.05 m. Flags call out field-edge (ditch/road/levee) change, large farm bias, and elevation spikes far above what the field's spread predicts (water surface or void fill). Inter-flight artifacts of 0.05–0.2 m are common: straight N–S/E–W edges in the dZ panel are data seams; curved, field-shaped patterns are earthwork. Offline checks: `scripts/tests/smoke_compare_lidar_epochs.py`.
+
 `DATA_PIPELINE_DATA_ROOT` is required. Set it to an absolute writable path outside the skill checkout before running the installer or any pipeline entrypoint. There is no implicit fallback to a platform workspace path or to a checkout-local `data/` directory.
 
 The installer creates and refreshes the runtime tree under:

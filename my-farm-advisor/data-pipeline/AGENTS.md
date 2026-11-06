@@ -60,6 +60,17 @@ cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
 
 Offline importer check: run `src/scripts/tests/smoke_import_boundaries.py` with the runtime venv Python.
 
+Multi-epoch lidar / land-leveling detection is opt-in and not part of `run_farm_pipeline.py`. Use it when the user asks whether fields were leveled or how elevation changed between flights. Dry-run the download first, then compare; always show the per-field PNGs, since straight seams in the dZ panel are data artifacts, not earthwork (see README "Multi-epoch lidar"):
+
+```bash
+export DATA_PIPELINE_DATA_ROOT=/absolute/path/to/my-farm-advisor-runtime
+cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" scripts/ingest/download_state_lidar.py --grower <grower> --farm <farm> --dry-run
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" scripts/reporting/compare_lidar_epochs.py --grower <grower> --farm <farm>
+```
+
+Offline comparison check: `src/scripts/tests/smoke_compare_lidar_epochs.py` with the runtime venv Python.
+
 Current-shell export for an existing runtime:
 
 ```bash
