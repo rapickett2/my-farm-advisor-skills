@@ -48,6 +48,18 @@ cd my-farm-advisor/data-pipeline
 
 Use this pattern when the user asks to initialize the data-pipeline and seed X fields for a grower in a specified state. The seeded farm slug and farm name can be omitted; `farm_dashboard.py create` derives stable defaults from grower and state. Because this path runs the full farm pipeline after seeding boundaries, derived tables, field weather, real DEM terrain, soil outputs, CDL history, satellite/NDVI products, reports, cards, posters, and HTML/Markdown farm reports should generate automatically. The generated farm and field reports do not integrate terrain metrics in this change.
 
+Import grower-supplied boundaries (shapefile/GeoPackage/GeoJSON, one row per field) into canonical farms, then run the pipeline per farm. Use this instead of seeding when the user provides their own field polygons. Always dry-run first and show the field/acre summary; `--state-fips` is required for US so CDL does not fall back to Iowa:
+
+```bash
+export DATA_PIPELINE_DATA_ROOT=/absolute/path/to/my-farm-advisor-runtime
+cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/ingest/import_boundaries.py \
+  --source "/path/to/Farm Boundaries.shp" --state AR --state-fips 05 --dry-run
+```
+
+Offline importer check: run `src/scripts/tests/smoke_import_boundaries.py` with the runtime venv Python.
+
 Current-shell export for an existing runtime:
 
 ```bash

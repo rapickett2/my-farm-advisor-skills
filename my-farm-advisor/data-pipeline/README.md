@@ -92,6 +92,23 @@ cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
   --farm-name "Acme Illinois Farm"
 ```
 
+## Import your own field boundaries
+
+To run the pipeline on grower-supplied polygons instead of sampled OSM/CSB fields, import any shapefile, GeoPackage, or GeoJSON with one row per field. Each grower/farm pair in the file becomes a canonical farm (boundary GeoJSON, `field-inventory.csv`, and `user_upload_fields_provenance.json` with the source sha256):
+
+```bash
+cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/ingest/import_boundaries.py \
+  --source "/path/to/Farm Boundaries.shp" \
+  --state AR --state-fips 05 \
+  --dry-run
+```
+
+Column names default to the common FMIS export layout (`CLIENT_NAM`, `FARM_NAME`, `FIELD_NAME`, `FIELD_ID`); override them with `--grower-column`, `--farm-column`, `--field-name-column`, and `--field-id-column`. Geometries are reprojected to EPSG:4326, repaired, and merged per field; `area_acres` is computed in EPSG:5070, and `county_fips` is filled from the shared county layer when present. Blank field IDs are derived as `<farm-slug>-<field-name-slug>`, and output is sorted, so re-importing the same file is byte-identical. `--state-fips` is required for US imports so the CDL step reads the right state. Drop `--dry-run` to write files, add `--grower "Name"` to import one grower, `--force` to replace boundaries that differ, and `--run-pipeline` to run `run_farm_pipeline.py` for each imported farm. Offline check: `scripts/tests/smoke_import_boundaries.py`.
+
+Keep grower boundary files out of Git; only the runtime tree should hold them.
+
 `DATA_PIPELINE_DATA_ROOT` is required. Set it to an absolute writable path outside the skill checkout before running the installer or any pipeline entrypoint. There is no implicit fallback to a platform workspace path or to a checkout-local `data/` directory.
 
 The installer creates and refreshes the runtime tree under:

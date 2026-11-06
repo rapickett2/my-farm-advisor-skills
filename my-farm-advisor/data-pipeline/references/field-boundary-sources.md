@@ -1,9 +1,10 @@
 # Field boundary sources per country (real-farm-polygon playbook)
 
 How to give any country's demo/production farm **real field polygons** (not
-synthetic rectangles), deterministically. Two providers exist; pick by
+synthetic rectangles), deterministically. Two public providers exist; pick by
 coverage, then record which one you used in the boundary properties
-(`source` = `usda_csb_fiboa` | `osm_farmland`).
+(`source` = `usda_csb_fiboa` | `osm_farmland`). When the grower supplies their
+own polygons, use the importer below instead (`source` = `user_upload`).
 
 ## Repository contract (every boundary source must satisfy this)
 
@@ -58,6 +59,22 @@ Hard-won Overpass rules:
    sleep 40–60 s, repeat up to ~15 rounds. Succeeded after ~30 min of retries.
 4. **Always journal the response** (sha256 + instance + QL) and support
    `--from-json` replay: reruns then cost nothing and stay byte-identical.
+
+## Any country — grower-supplied files (`import_boundaries.py`)
+
+Shapefile / GeoPackage / GeoJSON exports from an FMIS, one row per field.
+Grower, farm, field-name, and field-id columns are flags (defaults
+`CLIENT_NAM`, `FARM_NAME`, `FIELD_NAME`, `FIELD_ID`). Every grower/farm pair
+becomes its own farm satisfying the contract above, with
+`user_upload_fields_provenance.json` recording the source path + sha256.
+
+* Pass `--country` (ISO-2) and, for the US, `--state-fips`; CDL falls back to
+  Iowa (`19`) when `state_fips` is missing.
+* Blank IDs are derived as `<farm-slug>-<field-name-slug>`; rows are sorted
+  and re-imports are byte-identical. Differing existing boundaries need
+  `--force`.
+* Always `--dry-run` first and review the per-field acreage table.
+* Grower files are private data — keep them in the runtime tree, never Git.
 
 ## Choosing sources for NEW countries (checklist)
 
