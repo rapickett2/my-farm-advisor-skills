@@ -41,8 +41,9 @@ def _feature(props: dict, rings: list[list[list[float]]]) -> dict:
 def _write_source(path: Path) -> None:
     bowtie = [[[-90.80, 35.10], [-90.796, 35.104], [-90.796, 35.10], [-90.80, 35.104], [-90.80, 35.10]]]
     features = [
+        # PolygonZ, as many FMIS exports are -> must be written 2D.
         _feature({"CLIENT_NAM": "Smoke Grower", "FARM_NAME": "Smoke Farm", "FIELD_NAME": "Smoke Farm 1",
-                  "FIELD_ID": "id-1"}, [_square(-90.82, 35.10)]),
+                  "FIELD_ID": "id-1"}, [[[x, y, 61.5] for x, y in _square(-90.82, 35.10)]]),
         # Same field split across two rows -> one multipolygon.
         _feature({"CLIENT_NAM": "Smoke Grower", "FARM_NAME": "Smoke Farm", "FIELD_NAME": "North",
                   "FIELD_ID": ""}, [_square(-90.81, 35.10)]),
@@ -107,6 +108,9 @@ def main() -> int:
             raise SmokeFailure("split field rows were not merged")
         if any(f["properties"]["state_fips"] != "05" for f in data["features"]):
             raise SmokeFailure("state_fips not written")
+        first_ring = props["id-1"]["geometry"]["coordinates"][0]
+        if any(len(coord) != 2 for coord in first_ring):
+            raise SmokeFailure("Z coordinates were not dropped")
         with (farm / "manifests" / "field-inventory.csv").open(encoding="utf-8") as handle:
             slugs = {row["field_id"]: row["field_slug"] for row in csv.DictReader(handle)}
         if slugs.get("id-1") != "smoke-farm-1":

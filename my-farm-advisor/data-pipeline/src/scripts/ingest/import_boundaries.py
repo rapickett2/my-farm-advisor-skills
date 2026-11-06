@@ -41,6 +41,7 @@ ensure_runtime_environment()
 
 import geopandas as gpd
 import pandas as pd
+from shapely import force_2d
 from shapely.validation import make_valid
 
 from naming import slugify
@@ -73,9 +74,12 @@ def _clean(value: object) -> str:
 
 
 def _polygonal(geom):
-    """Repair a geometry and keep only its polygon parts."""
+    """Drop Z/M, repair the geometry, and keep only its polygon parts."""
     if geom is None or geom.is_empty:
         return None
+    # FMIS exports are often PolygonZ; USDA SDA silently returns no rows for
+    # "POLYGON Z" WKT, so boundaries are always stored 2D.
+    geom = force_2d(geom)
     if not geom.is_valid:
         geom = make_valid(geom)
     if geom.geom_type == "GeometryCollection":
