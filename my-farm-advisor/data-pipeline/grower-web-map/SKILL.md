@@ -5,8 +5,8 @@ description: >
   outputs: real field boundary polygons on an online ESRI World Imagery satellite basemap, click
   popups with grower / farm / field metadata (plus soil, crop history, NDVI, terrain, and lidar
   change when present), a field list that zooms to each field, a fit-all control, an SSURGO soil
-  layer with a series/drainage legend, and per-field average NDVI maps for each crop. Also writes a
-  companion NDVI detail viewer per grower for flipping through every Sentinel-2/Landsat scene.
+  layer with a series/drainage legend, and a link from each field to a companion NDVI detail viewer
+  per grower for flipping through every Sentinel-2/Landsat scene (plus per-crop averages).
 ---
 
 # Grower Web Map

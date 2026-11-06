@@ -176,20 +176,12 @@ def main() -> int:
         # Data strings live inside JSON in a <script>; "</" must be escaped so they cannot close it.
         if page.count("</script>") != 2 or "South <\\/script>" not in page:
             raise SmokeFailure("embedded data can terminate the script block")
-        ndvi = json.loads(re.search(r"const NDVI = (.*?);\n", page).group(1))
-        layers = ndvi.get("north-farm/f-1", [])
-        if [layer["crop"] for layer in layers] != ["Soybeans"] or layers[0]["years"] != [2021, 2022]:
-            raise SmokeFailure(f"NDVI must average per crop and skip Unknown years: {layers}")
-        if abs(layers[0]["mean"] - 0.4) > 0.01:
-            raise SmokeFailure(f"average soybean NDVI should be 0.40, got {layers[0]['mean']}")
-        # The per-field, per-crop NDVI maps are the only embedded images.
-        if page.count("data:image/png;base64,") != sum(len(v) for v in ndvi.values()) or "data:image/jpeg" in page:
-            raise SmokeFailure("embedded images other than the NDVI crop maps found")
-        scale = json.loads(re.search(r"const NDVI_SCALE = (.*?);\n", page).group(1))
-        rgb = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in (scale["colors"][0], scale["colors"][-1])]
-        if not (rgb[0][0] > rgb[0][1] and rgb[1][1] > rgb[1][0]):
-            raise SmokeFailure(f"NDVI ramp must run red (low) to green (high): {scale['colors']}")
-        print("PASS: average NDVI per crop (Unknown skipped), red-to-green ramp, only embedded images")
+        # The main map embeds no images and no per-crop NDVI averages; NDVI lives in the viewer.
+        if "data:image" in page or "ndvi-btn" in page or "const NDVI =" in page:
+            raise SmokeFailure("main map must not embed NDVI images or average-NDVI buttons")
+        if "viewer-link" not in page:
+            raise SmokeFailure("field popups must link to the NDVI viewer")
+        print("PASS: main map has no embedded images or NDVI averages; popups link to the viewer")
 
         soils = json.loads(re.search(r"const SOILS = (.*?);\n", page).group(1))["features"]
         legend = json.loads(re.search(r"const SOIL_LEGEND = (.*?);\n", page).group(1))
@@ -204,7 +196,7 @@ def main() -> int:
         if "SSURGO soils" not in page or "renderLegend" not in page:
             raise SmokeFailure("soils overlay or legend missing")
         print("PASS: SSURGO soil layer, dominant-component popups, series + drainage legends")
-        if len(page.encode("utf-8")) > 500_000:
+        if len(page.encode("utf-8")) > 200_000:
             raise SmokeFailure(f"map too large: {len(page)} bytes")
 
         viewer_path = html_path.with_name("smoke-grower_ndvi_viewer.html")
@@ -218,13 +210,19 @@ def main() -> int:
             raise SmokeFailure(f"viewer scenes must be date-sorted, both sensors, cloudy skipped: {dates} {f1['skipped']}")
         if [round(s["mean"], 2) for s in f1["scenes"]] != [0.2, 0.6, 0.4] or set(f1["bounds"]) != {"S2", "L"}:
             raise SmokeFailure(f"viewer scene stats wrong: {f1['scenes']}")
-        if [a["crop"] for a in f1["averages"]] != ["Soybeans"] or len(f1["composites"]) != 3:
-            raise SmokeFailure("viewer averages/composites tab data wrong")
+        averages = f1["averages"]
+        if [a["crop"] for a in averages] != ["Soybeans"] or averages[0]["years"] != [2021, 2022] or len(f1["composites"]) != 3:
+            raise SmokeFailure(f"viewer averages must be per crop with Unknown years skipped: {averages}")
+        if abs(averages[0]["mean"] - 0.4) > 0.01:
+            raise SmokeFailure(f"average soybean NDVI should be 0.40, got {averages[0]['mean']}")
         meta = json.loads(re.search(r"const META = (.*?);\n", viewer).group(1))
         if (meta["min"], meta["max"]) != (0.0, 0.9) or "smoke-grower_web_map.html" not in viewer:
             raise SmokeFailure("viewer must use the fixed 0-0.9 scale and link back to the map")
-        print("PASS: NDVI viewer — sorted scenes from both sensors, cloudy skipped, averages, fixed scale, links")
-        print("PASS: Esri basemaps, colour-blind-safe cased outlines, field list, escaping, 500 KB budget")
+        rgb = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in (meta["colors"][0], meta["colors"][-1])]
+        if not (rgb[0][0] > rgb[0][1] and rgb[1][1] > rgb[1][0]):
+            raise SmokeFailure(f"NDVI ramp must run red (low) to green (high): {meta['colors']}")
+        print("PASS: NDVI viewer — sorted scenes, cloudy skipped, per-crop averages (Unknown skipped), fixed red-to-green scale, links")
+        print("PASS: Esri basemaps, colour-blind-safe cased outlines, field list, escaping, 200 KB budget")
 
         before = html_path.read_bytes()
         subprocess.run(command, env=env, cwd=base / "src", check=True, capture_output=True)

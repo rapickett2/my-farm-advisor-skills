@@ -10,12 +10,11 @@ self-contained HTML file per grower with the field polygons on an ESRI World
 Imagery satellite basemap (with an Esri World Street Map alternative; both
 load online via Leaflet and work from a local file:// page), click popups with
 grower / farm / field metadata, a field list that zooms to each field, and a
-"fit all" control. Optional layers: SSURGO soil map units (colour by series
-or drainage, with a legend and per-unit popups) and, per field, the average
-NDVI map for each crop (mean of the yearly composites for the years that crop
-was grown, per the CDL labels; "Unknown" years skipped). The NDVI maps are the
-only embedded images: field-clipped, native 10 m, colourised PNGs on a red-yellow-green
-ramp (red = low) stretched to the grower's 2nd-98th NDVI percentile (one scale per map). No raw imagery, rasters, or data bundles are embedded;
+"fit all" control. Optional layer: SSURGO soil map units (colour by series
+or drainage, with a legend and per-unit popups). Each field popup links to the
+companion NDVI detail viewer (generate_grower_ndvi_viewer.py), which holds all
+NDVI imagery; the map itself embeds no images. No imagery, rasters, or data
+bundles are embedded;
 polygons are simplified (~0.5 m) and rounded to 1e-6 degrees. Output is
 deterministic: same pipeline data in, same HTML out.
 
@@ -27,10 +26,8 @@ Outputs (runtime tree):
 from __future__ import annotations
 
 import argparse
-import base64
 import csv
 import html
-import io
 import json
 import re
 import sys
@@ -50,7 +47,6 @@ import matplotlib
 import numpy as np
 import rasterio
 import shapely
-from PIL import Image
 from rasterio.features import geometry_mask
 
 from paths import (
@@ -92,7 +88,6 @@ DRAINAGE_CLASSES = [
     "Somewhat excessively drained",
     "Excessively drained",
 ]
-NDVI_VMIN, NDVI_VMAX = 0.0, 0.9  # fallback scale when a grower has no NDVI maps
 SKIP_CROPS = {"", "unknown", "no data", "nodata"}
 
 
@@ -108,7 +103,6 @@ DRAINAGE_COLORS = {
 # Note: red-green ramps are hard for red-green colour-blind viewers; the soil layer and field
 # outlines stay colour-blind safe.
 NDVI_COLORMAP = "RdYlGn"
-NDVI_GRADIENT = [_hex(matplotlib.colormaps[NDVI_COLORMAP](i / 8)) for i in range(9)]
 
 
 # --------------------------------------------------------------------------- data
@@ -270,35 +264,11 @@ def _soil_units(grower: str, farm: str, field_slug: str, field_id: str, field_ar
     return units
 
 
-def _ndvi_scale(ndvi: dict[str, list[dict]]) -> tuple[float, float]:
-    """One colour scale per grower map: 2nd-98th percentile of all crop maps, rounded to 0.05.
-
-    Seasonal composites cluster in a narrow band, so a fixed 0-0.9 ramp hides within-field
-    variation; a shared per-grower stretch keeps every field on the map comparable.
-    """
-    values = [layer["_array"][np.isfinite(layer["_array"])] for layers in ndvi.values() for layer in layers]
-    values = [v for v in values if v.size]
-    if not values:
-        return NDVI_VMIN, NDVI_VMAX
-    low, high = np.percentile(np.concatenate(values), [2, 98])
-    low, high = np.floor(low * 20) / 20, np.ceil(high * 20) / 20
-    if high - low < 0.1:
-        high = low + 0.1
-    return float(max(-1.0, low)), float(min(1.0, high))
-
-
-def _ndvi_png(values: np.ndarray, vmin: float, vmax: float) -> str:
-    """Colourise an NDVI array (NaN = transparent) on the red-yellow-green ramp; return a PNG data URL."""
-    scaled = np.clip((values - vmin) / (vmax - vmin), 0, 1)
-    rgba = (matplotlib.colormaps[NDVI_COLORMAP](np.nan_to_num(scaled)) * 255).astype("uint8")
-    rgba[..., 3] = np.where(np.isfinite(values), 235, 0)
-    buffer = io.BytesIO()
-    Image.fromarray(rgba, "RGBA").save(buffer, format="PNG", optimize=True)
-    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
-
-
 def _ndvi_by_crop(grower: str, farm: str, field_slug: str, field_geom) -> list[dict]:
-    """Average the yearly NDVI composites per crop (CDL label of each year) for one field."""
+    """Average the yearly NDVI composites per crop (CDL label of each year) for one field.
+
+    Used by the NDVI viewer's Averages tab; the main map no longer shows per-crop averages.
+    """
     summary = _read_json(field_summaries_dir(grower, farm, field_slug) / "ndvi_yearly_summary.json")
     by_crop: dict[str, list[tuple[int, Path, int]]] = {}
     for entry in summary.get("years", []):
@@ -341,7 +311,7 @@ def _ndvi_by_crop(grower: str, farm: str, field_slug: str, field_geom) -> list[d
                 "years": years,
                 "scenes": sum(count for _, _, count in by_crop[crop]),
                 "mean": round(float(np.nanmean(mean)), 3),
-                "_array": mean,  # colourised later on the grower-wide scale
+                "_array": mean,  # colourised by the caller (NDVI viewer)
                 "bounds": [[round(south, 7), round(west, 7)], [round(north, 7), round(east, 7)]],
             }
         )
@@ -368,14 +338,14 @@ def _soil_legend(soil_units: list[dict]) -> dict:
     return {"series": series, "drainage": drainage}
 
 
-def _farm_features(grower: str, farm_path: Path, grower_label: str | None) -> tuple[list[dict], dict, list[dict], dict]:
+def _farm_features(grower: str, farm_path: Path, grower_label: str | None) -> tuple[list[dict], dict, list[dict]]:
     farm = farm_path.name
     boundary = farm_boundary_path(grower, farm)
     if not boundary.exists():
-        return [], {}, [], {}
+        return [], {}, []
     gdf = gpd.read_file(boundary)
     if gdf.empty:
-        return [], {}, [], {}
+        return [], {}, []
     gdf = gdf.to_crs("EPSG:4326")
     farm_meta = _read_json(farm_path / "farm.json")
     slugs = field_slug_map_from_inventory(farm_manifest_dir(grower, farm) / "field-inventory.csv")
@@ -388,7 +358,6 @@ def _farm_features(grower: str, farm_path: Path, grower_label: str | None) -> tu
     simplified = projected.geometry.simplify(SIMPLIFY_M, preserve_topology=True).to_crs("EPSG:4326")
     features = []
     soil_units: list[dict] = []
-    ndvi: dict[str, list[dict]] = {}
     farm_name = None
     for idx, row in gdf.iterrows():
         field_id = str(row.get("field_id", idx))
@@ -421,9 +390,6 @@ def _farm_features(grower: str, farm_path: Path, grower_label: str | None) -> tu
         geometry = shapely.set_precision(simplified.loc[idx], 1e-6)
         feature_id = f"{farm}/{field_slug}"
         soil_units.extend(_soil_units(grower, farm, field_slug, feature_id, float(projected.geometry.loc[idx].area)))
-        crop_layers = _ndvi_by_crop(grower, farm, field_slug, row.geometry)
-        if crop_layers:
-            ndvi[feature_id] = crop_layers
         features.append(
             {
                 "type": "Feature",
@@ -439,7 +405,7 @@ def _farm_features(grower: str, farm_path: Path, grower_label: str | None) -> tu
             }
         )
     features.sort(key=lambda f: _natural_key(f["properties"]["name"]))
-    return features, {"slug": farm, "name": farm_name or farm}, soil_units, ndvi
+    return features, {"slug": farm, "name": farm_name or farm}, soil_units
 
 
 # --------------------------------------------------------------------------- html
@@ -479,10 +445,6 @@ _TEMPLATE = """<!DOCTYPE html>
   .field-label { background: rgba(0,0,0,.78); color: #fff; border: 1px solid rgba(255,255,255,.6); box-shadow: none; font-weight: 600; padding: 1px 5px; }
   .field-label::before { display: none; }
   .labels-off .field-label { display: none; }
-  .popup h4 { margin: 8px 0 4px; font-size: 12.5px; color: #333; border-top: 1px solid #ddd; padding-top: 6px; }
-  .ndvi-btn { display: block; width: 100%; margin: 3px 0; padding: 5px 8px; border: 1px solid #2f6fed; border-radius: 5px; background: #eef3fe; color: #1a3f8f; text-align: left; cursor: pointer; font-size: 12px; }
-  .ndvi-btn:hover, .ndvi-btn.on { background: #2f6fed; color: #fff; }
-  .ndvi-img { image-rendering: pixelated; }
   .viewer-link { display: block; margin-top: 8px; padding: 6px 8px; border-radius: 5px; background: #12161c; color: #fff !important; text-decoration: none; font-size: 12.5px; text-align: center; }
   .viewer-link small { color: #b8c4d6; }
   .legend { background: rgba(255,255,255,.95); padding: 8px 10px; border-radius: 6px; box-shadow: 0 1px 6px rgba(0,0,0,.35); font-size: 12px; max-width: 260px; line-height: 1.3; }
@@ -492,11 +454,8 @@ _TEMPLATE = """<!DOCTYPE html>
   .legend .chip { width: 14px; height: 14px; flex: none; border: 1px solid #333; border-radius: 2px; margin-top: 1px; }
   .legend .note { color: #666; font-size: 11px; }
   .legend .toggle { display: inline-flex; margin: 0 0 6px; border: 1px solid #2f6fed; border-radius: 5px; overflow: hidden; }
-  .legend .toggle button, .legend .link { border: 0; background: #fff; color: #1a3f8f; padding: 3px 8px; cursor: pointer; font-size: 11.5px; }
+  .legend .toggle button { border: 0; background: #fff; color: #1a3f8f; padding: 3px 8px; cursor: pointer; font-size: 11.5px; }
   .legend .toggle button.on { background: #2f6fed; color: #fff; }
-  .legend .link { padding: 3px 0; margin-right: 10px; text-decoration: underline; background: none; }
-  .legend .bar { height: 12px; border: 1px solid #333; border-radius: 2px; margin: 4px 0 2px; }
-  .legend .ticks { display: flex; justify-content: space-between; font-size: 11px; color: #444; }
   @media (max-width: 700px) { #side { width: 200px; } }
 </style>
 </head>
@@ -518,8 +477,6 @@ const DATA = __DATA__;
 const FARMS = __FARMS__;
 const SOILS = __SOILS__;
 const SOIL_LEGEND = __SOIL_LEGEND__;
-const NDVI = __NDVI__;
-const NDVI_SCALE = __NDVI_SCALE__;
 const VIEWER_FILE = __VIEWER_FILE__;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const map = L.map("map", { zoomControl: true, preferCanvas: false });
@@ -532,9 +489,8 @@ const streets = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/service
 const labels = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
   { maxZoom: 20, maxNativeZoom: 19, attribution: "Labels &copy; Esri" });
 L.control.scale({ imperial: true, metric: true }).addTo(map);
-// Draw order: basemap < soils < NDVI < field outlines (overlayPane, z 400).
+// Draw order: basemap < soils < field outlines (overlayPane, z 400).
 map.createPane("soils").style.zIndex = 350;
-map.createPane("ndvi").style.zIndex = 380;
 
 // Colour-blind-safe farm colours (Okabe-Ito) drawn over a dark casing, so outlines keep contrast
 // on both dark satellite imagery and the pale street map. Selection uses width + dashes, not hue.
@@ -542,29 +498,23 @@ const color = slug => (FARMS.find(f => f.slug === slug) || {}).color || "#E69F00
 let onStreets = false;
 let selectedId = null;
 let soilsOn = false;
-let ndviOn = false;
 const fillFor = () => (onStreets ? 0.28 : 0.16);
-// Field fills turn off while soils or NDVI are shown so those layers stay visible and clickable.
+// Field fills turn off while soils are shown so soil units stay visible and clickable.
 const baseStyle = f => {
   const selected = f.properties.id === selectedId;
   return {
     color: color(f.properties.farm), weight: selected ? 4 : 2.5, opacity: 1,
     dashArray: selected ? "8 5" : null, fillColor: color(f.properties.farm),
-    fill: !(soilsOn || ndviOn), fillOpacity: selected ? fillFor() + 0.14 : fillFor(),
+    fill: !soilsOn, fillOpacity: selected ? fillFor() + 0.14 : fillFor(),
   };
 };
 const casingStyle = f => ({ color: "#111", weight: f.properties.id === selectedId ? 8 : 5.5, opacity: 0.9, fill: false });
 const layers = {};
 const casing = L.geoJSON(DATA, { style: casingStyle, interactive: false });
 const rowsHtml = info => `<table>${info.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</table>`;
-const yearSpan = ys => ys.join(", ");
-const ndviButtons = id => (NDVI[id] || []).map((layer, i) =>
-  `<button class="ndvi-btn" data-field="${esc(id)}" data-crop="${i}">Average ${esc(layer.crop)} NDVI · ${
-    yearSpan(layer.years)} (${layer.years.length} yr) · mean ${layer.mean.toFixed(2)}</button>`).join("");
 const viewerLink = id => VIEWER_FILE
   ? `<a class="viewer-link" href="${esc(VIEWER_FILE)}#field=${encodeURIComponent(id)}" target="_blank" rel="noopener">Open NDVI viewer ↗ <small>(flip through every scene)</small></a>` : "";
-const popupHtml = p => `<div class="popup"><h3>${esc(p.name)}</h3>${rowsHtml(p.info)}${
-  NDVI[p.id] ? `<h4>Average NDVI by crop (click to map)</h4>${ndviButtons(p.id)}` : ""}${viewerLink(p.id)}</div>`;
+const popupHtml = p => `<div class="popup"><h3>${esc(p.name)}</h3>${rowsHtml(p.info)}${viewerLink(p.id)}</div>`;
 
 const fields = L.geoJSON(DATA, {
   style: baseStyle,
@@ -605,40 +555,10 @@ const soils = L.geoJSON(SOILS, {
   }
 });
 
-// ---- Average NDVI by crop overlays ----------------------------------------------------------
-const ndviGroup = L.layerGroup().addTo(map);
-let ndviState = null;  // { crop, fieldId | null (all fields) }
-function showNdvi(fieldId, cropName, allFields = false) {
-  ndviGroup.clearLayers();
-  const targets = allFields ? Object.keys(NDVI) : [fieldId];
-  let shown = 0;
-  targets.forEach(id => (NDVI[id] || []).filter(l => l.crop === cropName).forEach(l => {
-    L.imageOverlay(l.png, l.bounds, { pane: "ndvi", className: "ndvi-img", opacity: 1, interactive: false }).addTo(ndviGroup);
-    shown += 1;
-  }));
-  ndviOn = shown > 0;
-  ndviState = ndviOn ? { crop: cropName, fieldId: allFields ? null : fieldId, count: shown } : null;
-  document.querySelectorAll(".ndvi-btn").forEach(b => {
-    const layer = (NDVI[b.dataset.field] || [])[+b.dataset.crop];
-    b.classList.toggle("on", !!(ndviState && layer && layer.crop === cropName && (allFields || b.dataset.field === fieldId)));
-  });
-  restyle();
-  renderLegend();
-}
-function hideNdvi() { ndviGroup.clearLayers(); ndviOn = false; ndviState = null; document.querySelectorAll(".ndvi-btn.on").forEach(b => b.classList.remove("on")); restyle(); renderLegend(); }
 document.addEventListener("click", e => {
-  const btn = e.target.closest(".ndvi-btn");
-  if (btn) {
-    const layer = NDVI[btn.dataset.field][+btn.dataset.crop];
-    if (ndviState && ndviState.fieldId === btn.dataset.field && ndviState.crop === layer.crop) hideNdvi();
-    else showNdvi(btn.dataset.field, layer.crop);
-    return;
-  }
   const act = e.target.closest("[data-act]");
   if (!act) return;
   if (act.dataset.act === "soil-mode") { soilMode = act.dataset.mode; soils.setStyle(soilStyle); renderLegend(); }
-  if (act.dataset.act === "ndvi-all") showNdvi(null, ndviState.crop, true);
-  if (act.dataset.act === "ndvi-hide") hideNdvi();
 });
 
 // ---- Legend ---------------------------------------------------------------------------------
@@ -660,17 +580,6 @@ function renderLegend() {
       ${items.map(i => `<div class="row"><span class="chip" style="background:${i.color}"></span><span>${esc(i.name)}${
         soilMode === "series" ? `<br><span class="note">${esc(i.drainage)} · ${i.acres.toFixed(1)} ac</span>` : ""}</span></div>`).join("")}
       <div class="note">Click a soil unit for its properties.</div></section>`);
-  }
-  if (ndviState) {
-    const s = ndviState;
-    const one = s.fieldId ? NDVI[s.fieldId].find(l => l.crop === s.crop) : null;
-    const field = s.fieldId ? DATA.features.find(f => f.properties.id === s.fieldId).properties.name : null;
-    parts.push(`<section><h4>Average ${esc(s.crop)} NDVI</h4>
-      <div class="bar" style="background:linear-gradient(to right, ${NDVI_SCALE.colors.join(",")})"></div>
-      <div class="ticks"><span>≤ ${NDVI_SCALE.min.toFixed(2)}</span><span>${((NDVI_SCALE.min + NDVI_SCALE.max) / 2).toFixed(2)}</span><span>≥ ${NDVI_SCALE.max.toFixed(2)}</span></div>
-      <div class="note">${one ? `${esc(field)}: ${yearSpan(one.years)} (${one.years.length} season${one.years.length > 1 ? "s" : ""}, ${one.scenes} scenes), field mean ${one.mean.toFixed(2)}`
-        : `All fields with ${esc(s.crop)} years (${s.count})`}. Pixel = 10 m Sentinel-2/Landsat seasonal composite averaged over the years this crop was grown (CDL). Colour scale shared by all fields on this map.</div>
-      ${one ? `<button class="link" data-act="ndvi-all">Show for all fields</button>` : ""}<button class="link" data-act="ndvi-hide">Hide NDVI</button></section>`);
   }
   div.innerHTML = parts.join("");
   div.style.display = parts.length ? "" : "none";
@@ -748,22 +657,16 @@ def build_grower_map(grower: str, viewer_file: str | None = None) -> tuple[Path,
     features: list[dict] = []
     farms: list[dict] = []
     soil_units: list[dict] = []
-    ndvi: dict[str, list[dict]] = {}
     for farm_path in sorted((grower_root / "farms").iterdir(), key=lambda p: _natural_key(p.name)):
         if not farm_path.is_dir():
             continue
-        farm_features, farm_info, farm_soils, farm_ndvi = _farm_features(grower, farm_path, grower_label)
+        farm_features, farm_info, farm_soils = _farm_features(grower, farm_path, grower_label)
         if not farm_features:
             continue
         farm_info["color"] = FARM_COLORS[len(farms) % len(FARM_COLORS)]
         farms.append(farm_info)
         features.extend(farm_features)
         soil_units.extend(farm_soils)
-        ndvi.update(farm_ndvi)
-    ndvi_min, ndvi_max = _ndvi_scale(ndvi)
-    for layers in ndvi.values():
-        for layer in layers:
-            layer["png"] = _ndvi_png(layer.pop("_array"), ndvi_min, ndvi_max)
     legend = _soil_legend(soil_units)
     series_color = {item["name"]: item["color"] for item in legend["series"]}
     for unit in soil_units:
@@ -788,8 +691,6 @@ def build_grower_map(grower: str, viewer_file: str | None = None) -> tuple[Path,
         .replace("__FARMS__", _json_for_html(farms))
         .replace("__SOILS__", _json_for_html({"type": "FeatureCollection", "features": soil_units}))
         .replace("__SOIL_LEGEND__", _json_for_html(legend))
-        .replace("__NDVI__", _json_for_html(ndvi))
-        .replace("__NDVI_SCALE__", _json_for_html({"min": ndvi_min, "max": ndvi_max, "colors": NDVI_GRADIENT}))
         .replace("__VIEWER_FILE__", _json_for_html(viewer_file or ""))
         .replace("__DATA__", _json_for_html({"type": "FeatureCollection", "features": features}))
     )
@@ -803,7 +704,6 @@ def build_grower_map(grower: str, viewer_file: str | None = None) -> tuple[Path,
         "fields": len(features),
         "acres": total_acres,
         "soil_units": len(soil_units),
-        "ndvi_layers": sum(len(layers) for layers in ndvi.values()),
         "bytes": target.stat().st_size,
     }
 
@@ -864,7 +764,7 @@ def main(argv: list[str] | None = None) -> None:
         warn = "  WARNING: over 1 MB" if entry["bytes"] > SIZE_WARN_BYTES else ""
         print(
             f"ok    {grower:<22} {entry['farms']} farm(s), {entry['fields']:>3} fields, "
-            f"{entry['soil_units']:>3} soil units, {entry['ndvi_layers']:>3} NDVI crop maps, "
+            f"{entry['soil_units']:>3} soil units, "
             f"{entry['bytes'] / 1024:,.0f} KB  {target}{warn}"
         )
     if args.all_growers:

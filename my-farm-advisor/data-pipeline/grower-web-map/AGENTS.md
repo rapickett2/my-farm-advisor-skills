@@ -12,13 +12,12 @@ the user asks for broader data-pipeline changes.
   Never read grower source files (shapefiles, exports) directly; import them with
   `ingest/import_boundaries.py` first.
 - Optional popup sources must stay optional: a missing file skips its rows, never fails the map.
-- Keep output lightweight: polygons, short text, and the per-field average-NDVI-by-crop maps only.
-  Those NDVI maps are the single allowed embedded image type: field-clipped, native 10 m,
-  colourised PNG data URLs. Do not embed raw imagery, aerial photos, terrain or other rasters, or
-  full tables. Keep the size warning (1 MB), the 500 KB smoke-test budget, and the 0.5 m
-  simplification.
-- NDVI averages use only CDL-labelled years; never fold "Unknown" years into a crop average.
-- Per-scene NDVI images belong **only** in the companion `<grower>_ndvi_viewer.html`
+- Keep the main map lightweight: polygons and short text only — it embeds no images. Do not add
+  rasters, imagery, NDVI overlays, or full tables to it. Keep the size warning (1 MB), the 200 KB
+  smoke-test budget, and the 0.5 m simplification.
+- NDVI averages (viewer Averages tab) use only CDL-labelled years; never fold "Unknown" years into a
+  crop average.
+- All NDVI images (scenes, composites, per-crop averages) belong **only** in the companion `<grower>_ndvi_viewer.html`
   (`generate_grower_ndvi_viewer.py`), never in the main map. Viewer images are field-clipped,
   native-resolution palette PNGs on the fixed 0–0.9 scale; keep the < 10 % clear skip and the 8 MB
   warning. The main map only links to the viewer.

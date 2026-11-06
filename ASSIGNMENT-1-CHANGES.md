@@ -149,6 +149,23 @@ required step was completed against that data.
 - **Docs/tests:** subskill README (viewer section), AGENTS rule (per-scene images only in the
   viewer), SKILL, data-pipeline README; smoke test covers scene order across sensors, the cloudy
   skip, scene stats, averages/composites, the fixed scale, and map ↔ viewer links.
+- **Commit:** `c250bb4`
+
+### 13. Main map: per-crop average NDVI removed (NDVI viewer kept) — change
+- **What:** removed the "Average NDVI by crop" popup buttons, their map overlay, the NDVI legend
+  section, and the per-grower NDVI stretch from the main map (part of change 10 and the ramp in
+  change 11 now apply only to the viewer). The main map keeps everything else — SSURGO soils with
+  its legend, field styling, basemaps, field list, popups with the "NDVI archive" text row — and every
+  popup still opens the **NDVI viewer**, which is unchanged (scene flipping, chart, and its Averages
+  tab with per-crop averages and season composites).
+- **Why:** after reviewing, I wanted one clean field map with the soil layer, and all NDVI detail in
+  the viewer instead of split between the two.
+- **Result:** the main map embeds no images again: 38–64 KB per grower (was 100–131 KB). Viewers are
+  unchanged (1.2–2.5 MB).
+- **Docs/tests:** subskill README/AGENTS/SKILL and data-pipeline README updated; the smoke test now
+  checks the main map has no images or average buttons and links to the viewer, the viewer's
+  per-crop averages (Unknown years skipped, mean 0.40) and red-to-green fixed scale, and a 200 KB map
+  budget.
 - **Commit:** this change set (see `git log`)
 
 ## Problems hit and how they were solved
