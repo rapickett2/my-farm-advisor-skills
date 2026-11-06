@@ -7,7 +7,8 @@ Reads only data-pipeline outputs: every farm's canonical
 ``boundary/field_boundaries.geojson`` plus optional per-field summaries (soil,
 crop history, terrain, NDVI, lidar change) when they exist. Writes one
 self-contained HTML file per grower with the field polygons on an ESRI World
-Imagery satellite basemap (loaded online via Leaflet), click popups with
+Imagery satellite basemap (with an Esri World Street Map alternative; both
+load online via Leaflet and work from a local file:// page), click popups with
 grower / farm / field metadata, a field list that zooms to each field, and a
 "fit all" control. No rasters or data bundles are embedded; polygons are
 simplified (~0.5 m) and rounded to 1e-6 degrees. Output is deterministic:
@@ -274,7 +275,7 @@ _TEMPLATE = """<!DOCTYPE html>
       <div class="tools"><input id="filter" placeholder="Filter fields…" aria-label="Filter fields"><button id="fit" title="Zoom to all fields">Fit all</button></div>
     </header>
     <div id="list"></div>
-    <footer>Boundaries: My Farm Advisor data pipeline. Imagery: Esri World Imagery (Esri, Maxar, Earthstar Geographics).</footer>
+    <footer>Boundaries: My Farm Advisor data pipeline. Basemaps: Esri World Imagery (Esri, Maxar, Earthstar Geographics) and Esri World Street Map.</footer>
   </aside>
   <div id="map"></div>
 </div>
@@ -285,8 +286,10 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">"
 const map = L.map("map", { zoomControl: true, preferCanvas: false });
 const imagery = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
   { maxZoom: 20, maxNativeZoom: 19, attribution: "Imagery &copy; Esri, Maxar, Earthstar Geographics" }).addTo(map);
-const streets = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-  { maxZoom: 19, attribution: "&copy; OpenStreetMap contributors" });
+// Esri streets, not OSM's standard tile servers: their policy returns 403 "Access blocked"
+// for pages opened from disk (file://, no Referer), which is how these maps are viewed.
+const streets = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+  { maxZoom: 20, maxNativeZoom: 19, attribution: "Streets &copy; Esri, HERE, Garmin, USGS, NGA, EPA, USDA, NPS" });
 const labels = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
   { maxZoom: 20, maxNativeZoom: 19, attribution: "Labels &copy; Esri" });
 L.control.scale({ imperial: true, metric: true }).addTo(map);
@@ -310,7 +313,7 @@ const fields = L.geoJSON(DATA, {
   }
 }).addTo(map);
 
-L.control.layers({ "Satellite (Esri)": imagery, "Streets (OSM)": streets }, { "Place labels": labels, "Fields": fields },
+L.control.layers({ "Satellite (Esri)": imagery, "Streets (Esri)": streets }, { "Place labels": labels, "Fields": fields },
   { collapsed: false }).addTo(map);
 
 const fitAll = () => map.fitBounds(fields.getBounds(), { padding: [30, 30] });

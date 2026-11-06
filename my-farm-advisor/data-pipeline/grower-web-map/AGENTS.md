@@ -16,6 +16,9 @@ the user asks for broader data-pipeline changes.
   images, or full tables. Keep the size warning (1 MB) and the 0.5 m simplification.
 - Keep output deterministic: sorted fields, `sort_keys` JSON, ordered popup rows as `[label, value]`
   pairs, no timestamps.
+- Basemaps must work from a downloaded `file://` page: keep to Esri ArcGIS Online tile services
+  (World Imagery, World Street Map, reference labels). Do not use `tile.openstreetmap.org`; it
+  answers file:// pages with HTTP 403 "Access blocked". The smoke test enforces this.
 - Escape every string rendered into the page (HTML-escape server side, `esc()` client side).
 - Generated HTML is runtime output; never commit it.
 

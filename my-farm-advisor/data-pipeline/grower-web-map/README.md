@@ -9,7 +9,7 @@ subskill; it does not depend on `admin/interactive-web-map`.
 | Feature | Detail |
 |---|---|
 | Field polygons | Every field of every farm for the grower, read from `farms/<farm>/boundary/field_boundaries.geojson` (the pipeline's canonical boundaries), coloured by farm, labelled when zoomed in (≥ z15) |
-| Basemap | ESRI World Imagery satellite tiles (online); switch to OpenStreetMap streets; optional ESRI place-label overlay |
+| Basemap | ESRI World Imagery satellite tiles (online); switch to ESRI World Street Map; optional ESRI place-label overlay. All tiles come from `server.arcgisonline.com`, which serves pages opened from disk. OpenStreetMap's standard tile servers are deliberately not used: their tile policy returns HTTP 403 "Access blocked" to `file://` pages (no Referer header), which is how downloaded maps are viewed |
 | Navigation | Zoom/pan, scale bar, **Fit all** button, sidebar field list grouped by farm (natural sort) that zooms to a field and opens its popup, text filter |
 | Click a field | Popup with Grower, Farm, Field, Field ID, Acres, County / State, then any of the optional rows below that exist |
 

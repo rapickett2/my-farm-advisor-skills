@@ -117,6 +117,8 @@ def main() -> int:
 
         if "World_Imagery" not in page or "L.geoJSON" not in page or 'id="list"' not in page or "fitBounds" not in page:
             raise SmokeFailure("satellite basemap, polygons, field list, or fit control missing")
+        if "World_Street_Map" not in page or "tile.openstreetmap.org" in page:
+            raise SmokeFailure("street basemap must be Esri World Street Map (OSM tiles 403 on file:// pages)")
         # Data strings live inside JSON in a <script>; "</" must be escaped so they cannot close it.
         if page.count("</script>") != 2 or "South <\\/script>" not in page:
             raise SmokeFailure("embedded data can terminate the script block")
@@ -124,7 +126,7 @@ def main() -> int:
             raise SmokeFailure("embedded image data found")
         if len(page.encode("utf-8")) > 200_000:
             raise SmokeFailure(f"map too large: {len(page)} bytes")
-        print("PASS: satellite basemap, field list, escaping, size budget, no embedded imagery")
+        print("PASS: Esri satellite + street basemaps, field list, escaping, size budget, no embedded imagery")
 
         before = html_path.read_bytes()
         subprocess.run(command, env=env, cwd=base / "src", check=True, capture_output=True)
