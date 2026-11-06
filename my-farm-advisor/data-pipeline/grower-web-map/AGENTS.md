@@ -18,6 +18,10 @@ the user asks for broader data-pipeline changes.
   full tables. Keep the size warning (1 MB), the 500 KB smoke-test budget, and the 0.5 m
   simplification.
 - NDVI averages use only CDL-labelled years; never fold "Unknown" years into a crop average.
+- Per-scene NDVI images belong **only** in the companion `<grower>_ndvi_viewer.html`
+  (`generate_grower_ndvi_viewer.py`), never in the main map. Viewer images are field-clipped,
+  native-resolution palette PNGs on the fixed 0–0.9 scale; keep the < 10 % clear skip and the 8 MB
+  warning. The main map only links to the viewer.
 - Keep output deterministic: sorted fields, `sort_keys` JSON, ordered popup rows as `[label, value]`
   pairs, no timestamps.
 - Basemaps must work from a downloaded `file://` page: keep to Esri ArcGIS Online tile services

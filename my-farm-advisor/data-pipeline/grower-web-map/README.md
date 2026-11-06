@@ -17,6 +17,23 @@ subskill; it does not depend on `admin/interactive-web-map`.
 | Average NDVI by crop | For each field, the yearly NDVI composites (`derived/features/ndvi_year_<year>_composite.tif`) are grouped by that year's crop (`ndvi_yearly_summary.json`, from CDL) and averaged pixel by pixel; years labelled "Unknown" are skipped (the default CDL history ends in 2023). Popup buttons ("Average Soybeans NDVI · 2021, 2023 · mean 0.35") overlay that field's map at native 10 m; **Show for all fields** compares every field for that crop |
 | Legend | Bottom-right panel that appears with the active layer: soil series with drainage and acres (Series / Drainage switch), and the NDVI ramp (classic **red → yellow → green**, matplotlib `RdYlGn`: red = low NDVI, green = high) with years, scenes, and field mean. Red–green ramps are hard for red-green colour-blind viewers; the soil layer and field outlines remain colour-blind safe (change `NDVI_COLORMAP` to e.g. `viridis` for an accessible ramp). The NDVI ramp is stretched to the grower's 2nd–98th percentile (rounded to 0.05), shared by every field on that map |
 
+## NDVI detail viewer (companion page)
+
+`generate_grower_web_map.py` also writes `growers/<grower>/derived/reports/<grower>_ndvi_viewer.html`
+(skip with `--no-ndvi-viewer`; standalone: `generate_grower_ndvi_viewer.py --all-growers`). Each field
+popup on the map has **Open NDVI viewer ↗**, which opens the viewer with that field selected
+(`#field=<farm>/<field>`); download both files into the same folder for the link to work.
+
+| Feature | Detail |
+|---|---|
+| Scenes | Every field's Sentinel-2 (10 m) and Landsat (30 m) NDVI scenes from `fields/<field>/satellite/{sentinel,landsat}/manifest.json`, all archive seasons, sorted by date; scenes with < 10 % clear pixels inside the field are skipped, 10–50 % are labelled "partly cloudy" |
+| Flip through | ◀ / ▶ buttons and arrow keys, date slider, ▶ Play (space), opacity slider; year tabs (All / each season), sensor filter, "Hide partly cloudy" |
+| Per-scene info | Date, sensor, field-mean NDVI, CDL crop for that year, % of field clear, scene cloud cover, position (n / total) |
+| Chart | Field-mean NDVI over the season (Mar–Nov), one line per year (Okabe–Ito colours), filled = Sentinel-2, hollow = Landsat; click a point to jump to that scene |
+| Averages tab | Average NDVI per crop (same method as the map) and each year's season composite |
+| Colour | Red → yellow → green on a **fixed 0–0.9 scale** so colours stay comparable while flipping (the map's per-crop averages use a per-grower stretch instead) |
+| Size | Field-clipped native-resolution palette PNGs (~1–3 KB each): typically 1–3 MB per grower; warns above 8 MB. The main map stays lightweight |
+
 Optional popup rows (skipped silently when the pipeline step has not produced them):
 
 | Row | Source file (under the field or farm folder) |

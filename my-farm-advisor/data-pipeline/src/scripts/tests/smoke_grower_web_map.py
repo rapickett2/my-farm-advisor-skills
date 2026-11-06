@@ -122,6 +122,24 @@ def main() -> int:
         summaries = north / "fields" / "f-1" / "derived" / "summaries"
         summaries.mkdir(parents=True, exist_ok=True)
         (summaries / "ndvi_yearly_summary.json").write_text(json.dumps({"years": years}), encoding="utf-8")
+        # Per-scene NDVI for the viewer: 2 Sentinel-2 + 1 Landsat clear scenes, 1 fully cloudy (skipped).
+        satellite = north / "fields" / "f-1" / "satellite"
+        for sensor, scenes in (
+            ("sentinel", [("2021-06-01", 0.6), ("2021-04-01", 0.2), ("2022-07-01", np.nan)]),
+            ("landsat", [("2022-05-01", 0.4)]),
+        ):
+            entries: dict[int, list] = {}
+            for date, value in scenes:
+                tif = satellite / sensor / date[:4] / f"{sensor}_{date}_ndvi.tif"
+                tif.parent.mkdir(parents=True, exist_ok=True)
+                with rasterio.open(tif, "w", driver="GTiff", width=20, height=20, count=1, dtype="float32",
+                                   crs="EPSG:4326", transform=from_bounds(-90.7805, 35.5995, -90.7755, 35.6045, 20, 20),
+                                   nodata=-9999) as dst:
+                    dst.write(np.full((20, 20), -9999 if np.isnan(value) else value, dtype="float32"), 1)
+                entries.setdefault(int(date[:4]), []).append(
+                    {"scene_date": date, "cloud_cover": 0.05, "status": "complete", "ndvi_tif": str(tif.relative_to(base))})
+            (satellite / sensor / "manifest.json").write_text(
+                json.dumps({"years": [{"year": y, "scenes": s} for y, s in entries.items()]}), encoding="utf-8")
         (base / "growers" / "smoke-grower" / "grower.json").write_text('{"display_name": "smoke-grower"}', encoding="utf-8")
 
         command = [sys.executable, "scripts/reporting/generate_grower_web_map.py", "--all-growers"]
@@ -188,6 +206,24 @@ def main() -> int:
         print("PASS: SSURGO soil layer, dominant-component popups, series + drainage legends")
         if len(page.encode("utf-8")) > 500_000:
             raise SmokeFailure(f"map too large: {len(page)} bytes")
+
+        viewer_path = html_path.with_name("smoke-grower_ndvi_viewer.html")
+        if not viewer_path.exists() or 'const VIEWER_FILE = "smoke-grower_ndvi_viewer.html"' not in page:
+            raise SmokeFailure("NDVI viewer not generated or not linked from the main map")
+        viewer = viewer_path.read_text(encoding="utf-8")
+        fields = json.loads(re.search(r"const FIELDS = (.*?);\nconst FARMS", viewer, re.S).group(1).replace("<\\/", "</"))
+        f1 = next(f for f in fields if f["id"] == "north-farm/f-1")
+        dates = [(s["d"], s["s"]) for s in f1["scenes"]]
+        if dates != [("2021-04-01", "S2"), ("2021-06-01", "S2"), ("2022-05-01", "L")] or f1["skipped"] != 1:
+            raise SmokeFailure(f"viewer scenes must be date-sorted, both sensors, cloudy skipped: {dates} {f1['skipped']}")
+        if [round(s["mean"], 2) for s in f1["scenes"]] != [0.2, 0.6, 0.4] or set(f1["bounds"]) != {"S2", "L"}:
+            raise SmokeFailure(f"viewer scene stats wrong: {f1['scenes']}")
+        if [a["crop"] for a in f1["averages"]] != ["Soybeans"] or len(f1["composites"]) != 3:
+            raise SmokeFailure("viewer averages/composites tab data wrong")
+        meta = json.loads(re.search(r"const META = (.*?);\n", viewer).group(1))
+        if (meta["min"], meta["max"]) != (0.0, 0.9) or "smoke-grower_web_map.html" not in viewer:
+            raise SmokeFailure("viewer must use the fixed 0-0.9 scale and link back to the map")
+        print("PASS: NDVI viewer — sorted scenes from both sensors, cloudy skipped, averages, fixed scale, links")
         print("PASS: Esri basemaps, colour-blind-safe cased outlines, field list, escaping, 500 KB budget")
 
         before = html_path.read_bytes()

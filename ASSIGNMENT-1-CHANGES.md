@@ -129,6 +129,26 @@ required step was completed against that data.
 - **Why:** my preference after reviewing the map — red/green reads as poor/good crop vigour at a
   glance. Trade-off noted in the README: red–green ramps are hard for red-green colour-blind viewers;
   the soil layer and field outlines stay colour-blind safe.
+- **Commit:** `e298ffe`
+
+### 12. NDVI detail viewer per grower (flip through every scene) — new
+- **What:** `reporting/generate_grower_ndvi_viewer.py` writes `<grower>_ndvi_viewer.html`, a companion
+  page with every field's Sentinel-2 (10 m) and Landsat (30 m) NDVI scenes for 2021–2025, sorted by
+  date. Flip with ◀/▶, arrow keys, a date slider, or ▶ Play; filter by year tab, sensor, and "hide
+  partly cloudy"; each scene shows date, sensor, field-mean NDVI, CDL crop, % of field clear, and
+  scene cloud cover. A clickable NDVI-over-time chart (one line per season) jumps to any scene, and
+  an Averages tab shows the per-crop averages and each season's composite. Fixed red→yellow→green
+  0–0.9 scale so colours are comparable while flipping. Scenes with < 10 % clear field pixels are
+  skipped. The main map keeps its averages and gains **Open NDVI viewer ↗** in every field popup
+  (opens the viewer on that field); `generate_grower_web_map.py` builds both (`--no-ndvi-viewer` to
+  skip) and the growers index links the viewers.
+- **Why:** after reviewing the averages I wanted to look at NDVI in detail through the seasons.
+  Embedding ~2,600 scenes in the main map would break "keep it lightweight", so they live in a
+  separate viewer: 1.2–2.5 MB per grower (MFP 494 scenes, Wrightland 647, NERREC 1,443) while the
+  main maps stay 100–131 KB.
+- **Docs/tests:** subskill README (viewer section), AGENTS rule (per-scene images only in the
+  viewer), SKILL, data-pipeline README; smoke test covers scene order across sensors, the cloudy
+  skip, scene stats, averages/composites, the fixed scale, and map ↔ viewer links.
 - **Commit:** this change set (see `git log`)
 
 ## Problems hit and how they were solved

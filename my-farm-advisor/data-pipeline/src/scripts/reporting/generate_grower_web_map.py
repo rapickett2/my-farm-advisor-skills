@@ -483,6 +483,8 @@ _TEMPLATE = """<!DOCTYPE html>
   .ndvi-btn { display: block; width: 100%; margin: 3px 0; padding: 5px 8px; border: 1px solid #2f6fed; border-radius: 5px; background: #eef3fe; color: #1a3f8f; text-align: left; cursor: pointer; font-size: 12px; }
   .ndvi-btn:hover, .ndvi-btn.on { background: #2f6fed; color: #fff; }
   .ndvi-img { image-rendering: pixelated; }
+  .viewer-link { display: block; margin-top: 8px; padding: 6px 8px; border-radius: 5px; background: #12161c; color: #fff !important; text-decoration: none; font-size: 12.5px; text-align: center; }
+  .viewer-link small { color: #b8c4d6; }
   .legend { background: rgba(255,255,255,.95); padding: 8px 10px; border-radius: 6px; box-shadow: 0 1px 6px rgba(0,0,0,.35); font-size: 12px; max-width: 260px; line-height: 1.3; }
   .legend h4 { margin: 0 0 6px; font-size: 12.5px; }
   .legend section + section { margin-top: 10px; padding-top: 8px; border-top: 1px solid #ddd; }
@@ -518,6 +520,7 @@ const SOILS = __SOILS__;
 const SOIL_LEGEND = __SOIL_LEGEND__;
 const NDVI = __NDVI__;
 const NDVI_SCALE = __NDVI_SCALE__;
+const VIEWER_FILE = __VIEWER_FILE__;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const map = L.map("map", { zoomControl: true, preferCanvas: false });
 const imagery = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
@@ -558,8 +561,10 @@ const yearSpan = ys => ys.join(", ");
 const ndviButtons = id => (NDVI[id] || []).map((layer, i) =>
   `<button class="ndvi-btn" data-field="${esc(id)}" data-crop="${i}">Average ${esc(layer.crop)} NDVI · ${
     yearSpan(layer.years)} (${layer.years.length} yr) · mean ${layer.mean.toFixed(2)}</button>`).join("");
+const viewerLink = id => VIEWER_FILE
+  ? `<a class="viewer-link" href="${esc(VIEWER_FILE)}#field=${encodeURIComponent(id)}" target="_blank" rel="noopener">Open NDVI viewer ↗ <small>(flip through every scene)</small></a>` : "";
 const popupHtml = p => `<div class="popup"><h3>${esc(p.name)}</h3>${rowsHtml(p.info)}${
-  NDVI[p.id] ? `<h4>Average NDVI by crop (click to map)</h4>${ndviButtons(p.id)}` : ""}</div>`;
+  NDVI[p.id] ? `<h4>Average NDVI by crop (click to map)</h4>${ndviButtons(p.id)}` : ""}${viewerLink(p.id)}</div>`;
 
 const fields = L.geoJSON(DATA, {
   style: baseStyle,
@@ -736,7 +741,7 @@ def _json_for_html(value) -> str:
     return json.dumps(value, separators=(",", ":"), sort_keys=True, ensure_ascii=False).replace("</", "<\\/")
 
 
-def build_grower_map(grower: str) -> tuple[Path, dict]:
+def build_grower_map(grower: str, viewer_file: str | None = None) -> tuple[Path, dict]:
     grower_root = grower_dir(grower)
     grower_meta = _read_json(grower_root / "grower.json")
     grower_label = grower_meta.get("display_name") if grower_meta.get("display_name") != grower else None
@@ -785,6 +790,7 @@ def build_grower_map(grower: str) -> tuple[Path, dict]:
         .replace("__SOIL_LEGEND__", _json_for_html(legend))
         .replace("__NDVI__", _json_for_html(ndvi))
         .replace("__NDVI_SCALE__", _json_for_html({"min": ndvi_min, "max": ndvi_max, "colors": NDVI_GRADIENT}))
+        .replace("__VIEWER_FILE__", _json_for_html(viewer_file or ""))
         .replace("__DATA__", _json_for_html({"type": "FeatureCollection", "features": features}))
     )
     target = grower_root / "derived" / "reports" / f"{grower}_web_map.html"
@@ -805,7 +811,10 @@ def build_grower_map(grower: str) -> tuple[Path, dict]:
 def write_index(entries: list[dict]) -> Path:
     rows = "\n".join(
         f'<li><a href="{html.escape(e["grower"])}/derived/reports/{html.escape(e["grower"])}_web_map.html">'
-        f'{html.escape(e["name"])}</a> — {e["farms"]} farm(s), {e["fields"]} fields, {e["acres"]:,.0f} acres</li>'
+        f'{html.escape(e["name"])}</a> — {e["farms"]} farm(s), {e["fields"]} fields, {e["acres"]:,.0f} acres'
+        + (f' · <a href="{html.escape(e["grower"])}/derived/reports/{html.escape(e["viewer"])}">NDVI viewer</a>'
+           if e.get("viewer") else "")
+        + "</li>"
         for e in sorted(entries, key=lambda e: _natural_key(e["name"]))
     )
     page = (
@@ -823,6 +832,11 @@ def main(argv: list[str] | None = None) -> None:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--grower", action="append", help="Grower slug (repeatable)")
     group.add_argument("--all-growers", action="store_true", help="Every grower under growers/")
+    parser.add_argument(
+        "--no-ndvi-viewer",
+        action="store_true",
+        help="Skip the companion <grower>_ndvi_viewer.html (scene-by-scene NDVI detail viewer)",
+    )
     args = parser.parse_args(argv)
 
     growers = (
@@ -834,7 +848,18 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit("No growers found under the runtime growers/ directory.")
     entries = []
     for grower in growers:
-        target, entry = build_grower_map(grower)
+        viewer_file = None
+        if not args.no_ndvi_viewer:
+            from generate_grower_ndvi_viewer import build_ndvi_viewer  # lazy: avoids a circular import
+
+            viewer_path, viewer = build_ndvi_viewer(grower, map_filename=f"{grower}_web_map.html")
+            viewer_file = viewer_path.name
+            print(
+                f"ok    {grower:<22} NDVI viewer: {viewer['scenes']} scenes "
+                f"({viewer['skipped']} cloudy skipped), {viewer['bytes'] / 1e6:.1f} MB  {viewer_path}"
+            )
+        target, entry = build_grower_map(grower, viewer_file)
+        entry["viewer"] = viewer_file
         entries.append(entry)
         warn = "  WARNING: over 1 MB" if entry["bytes"] > SIZE_WARN_BYTES else ""
         print(
