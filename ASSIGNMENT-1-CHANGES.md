@@ -86,7 +86,7 @@ required step was completed against that data.
 - **Why:** reviewing the downloaded map in Chrome, every OSM tile showed **403 "Access blocked"**:
   OSM's tile policy rejects pages opened from disk (`file://`, no Referer). Esri tiles load from
   local files (verified: all street tiles HTTP 200 on all three maps).
-- **Commit:** this change set (see `git log`)
+- **Commit:** `e28cbee`
 
 ### 8. This change log — new
 - `ASSIGNMENT-1-CHANGES.md` (commit `e28cbee`, with change 7).
@@ -101,7 +101,26 @@ required step was completed against that data.
   street map and the palette was not colour-blind safe. Verified with screenshots on both basemaps.
 - **Docs/tests:** subskill README (colour and contrast row), AGENTS accessibility rule, smoke test
   checks the palette and the casing.
-- **Commit:** this change set (see `git log`)
+- **Commit:** `d11e23a`
+
+### 10. Web map (stretch goal): SSURGO soil layer with legend + average NDVI by crop — new
+- **What:** a **"SSURGO soils"** overlay draws each field's soil map units, coloured by **soil
+  series** (Paul Tol colour-blind-safe palette; Water in cyan) or **drainage class** (cividis, wet to
+  dry) via a Series/Drainage switch in a new **legend** panel; clicking a unit shows series, share of
+  map unit, drainage, topsoil pH / OM / clay / sand / AWC (dominant component), map unit key, and
+  acres / % of field. Each field popup gains **"Average NDVI by crop"** buttons: the yearly NDVI
+  composites are grouped by that year's CDL crop and averaged pixel by pixel ("Unknown" years
+  skipped), shown as a 10 m overlay with a viridis legend (years, scenes, field mean) and a
+  **Show for all fields** option. The NDVI ramp is stretched per grower (2nd–98th percentile) after
+  a fixed 0–0.9 ramp proved too flat for seasonal composites.
+- **Why:** the assignment's optional stretch goal (other datasets like SSURGO or NDVI, a cleaner
+  legend). Seeing soils and NDVI together shows, e.g., the low-NDVI swales at Wrightland WR 07 lining
+  up with the Loring/Henry soil bands.
+- **Size:** maps grew to 95–125 KB (still lightweight). The NDVI maps are the only embedded images
+  (small field-clipped PNGs); AGENTS rules and the smoke test (500 KB budget) enforce this.
+- **Docs/tests:** subskill README/AGENTS/SKILL, data-pipeline README, smoke test (synthetic soils and
+  NDVI: dominant-component popups, ordered drainage legend, Unknown years excluded, mean 0.40).
+- **Commit:** `2d5b00f`
 
 ## Problems hit and how they were solved
 
