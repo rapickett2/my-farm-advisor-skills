@@ -16,7 +16,8 @@ Workflow (EPSG:4326 in, UTM metric workspace, EPSG:4326 out):
 9. Write ``field_boundary.gpkg`` and ``headlands_ring.gpkg`` (one row each,
    columns ``geometry``, ``meters_squared``, ``acres``).
 
-Existing outputs are never overwritten unless ``--force`` is given.
+Existing outputs are never overwritten unless ``--force`` is given. ``--pictures`` also writes
+the two PNGs from ``make_headlands_pictures.py``.
 """
 
 from __future__ import annotations
@@ -30,6 +31,9 @@ from pyproj import CRS
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from headlands_ring import ACRES_PER_SQM, create_headlands_ring  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import make_headlands_pictures as pictures  # noqa: E402
 
 WGS84 = CRS.from_epsg(4326)
 OUTPUT_COLUMNS = ["meters_squared", "acres", "geometry"]
@@ -158,10 +162,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out-dir", required=True, type=Path, help="output folder for .gpkg files")
     parser.add_argument("--width-m", type=float, default=21.0, help="headlands width in meters")
     parser.add_argument("--force", action="store_true", help="overwrite existing outputs")
+    parser.add_argument("--pictures", action="store_true",
+                        help="also write the overview and workflow-steps PNGs (make_headlands_pictures.py)")
+    parser.add_argument("--title", default=None, help="picture title (default: output folder name)")
+    parser.add_argument("--prefix", default=None, help="picture file prefix (default: slug of title)")
     args = parser.parse_args(argv)
 
     if args.width_m <= 0:
         parser.error("--width-m must be positive")
+
+    if args.pictures and not args.force:
+        _, overview, steps = pictures.picture_paths(args.out_dir, args.title, args.prefix)
+        existing = [p for p in (overview, steps) if p.exists()]
+        if existing:
+            raise FileExistsError(
+                f"refusing to overwrite existing picture(s): {', '.join(map(str, existing))} (use --force)"
+            )
 
     original_gdf, log = read_original_boundary(args.input)
     field_gdf, ring_gdf, _, build_log = build_headlands(original_gdf, args.width_m)
@@ -171,6 +187,14 @@ def main(argv: list[str] | None = None) -> int:
         print(line)
     print(f"wrote: {field_path}")
     print(f"wrote: {ring_path}")
+
+    if args.pictures:
+        pic_args = ["--dir", str(args.out_dir), "--force"]
+        if args.title:
+            pic_args += ["--title", args.title]
+        if args.prefix:
+            pic_args += ["--prefix", args.prefix]
+        pictures.main(pic_args)
     return 0
 
 

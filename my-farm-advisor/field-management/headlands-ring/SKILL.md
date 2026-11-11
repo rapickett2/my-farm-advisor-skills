@@ -26,7 +26,8 @@ Outputs (EPSG:4326, one row each, columns `geometry`, `meters_squared`, `acres`)
 `field_boundary.gpkg` and `headlands_ring.gpkg`. Existing outputs are never overwritten unless
 `--force` is passed.
 
-Optional pictures (overview map and six-panel workflow figure) from those two files:
+Add `--pictures --title "WR 02"` to the same command to also write the overview map and six-panel
+workflow figure. To draw them later from existing files:
 
 ```bash
 "$PY" my-farm-advisor/field-management/headlands-ring/scripts/make_headlands_pictures.py \

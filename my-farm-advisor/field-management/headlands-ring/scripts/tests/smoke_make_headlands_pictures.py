@@ -59,6 +59,18 @@ def main() -> int:
         assert mhp.main(["--dir", str(narrow), "--prefix", "narrow"]) == 0
         check_pngs(narrow, "narrow")
 
+        combo_src = tmp_path / "square.geojson"
+        combo_out = tmp_path / "combo_out"
+        assert mhr.main(["--input", str(combo_src), "--out-dir", str(combo_out),
+                         "--pictures", "--title", "Combo"]) == 0
+        check_pngs(combo_out, "combo")
+        try:
+            mhr.main(["--input", str(combo_src), "--out-dir", str(combo_out), "--pictures", "--title", "Combo"])
+        except FileExistsError:
+            pass
+        else:
+            raise AssertionError("--pictures rerun without --force should refuse to overwrite")
+
         bad = tmp_path / "bad"
         bad.mkdir()
         gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs="EPSG:32615").to_file(

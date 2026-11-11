@@ -35,6 +35,16 @@ RING_FILL, RING_EDGE, OUTLINE, FIELD_FILL = "#ffe500", "#8a7d00", "#1b5e20", "#e
 DASH = (0, (4, 3))
 
 
+def picture_paths(folder: Path, title: str | None, prefix: str | None) -> tuple[str, Path, Path]:
+    title = title or folder.resolve().name
+    prefix = prefix or "".join(c if c.isalnum() else "_" for c in title.lower()).strip("_")
+    return (
+        title,
+        folder / f"{prefix}_headlands_overview.png",
+        folder / f"{prefix}_headlands_workflow_steps.png",
+    )
+
+
 def read_inputs(folder: Path) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     field = gpd.read_file(folder / FIELD_FILE)
     ring = gpd.read_file(folder / RING_FILE)
@@ -170,10 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force", action="store_true", help="overwrite existing pictures")
     args = parser.parse_args(argv)
 
-    title = args.title or args.dir.resolve().name
-    prefix = args.prefix or "".join(c if c.isalnum() else "_" for c in title.lower()).strip("_")
-    overview = args.dir / f"{prefix}_headlands_overview.png"
-    steps = args.dir / f"{prefix}_headlands_workflow_steps.png"
+    title, overview, steps = picture_paths(args.dir, args.title, args.prefix)
     existing = [p for p in (overview, steps) if p.exists()]
     if existing and not args.force:
         raise FileExistsError(

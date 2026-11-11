@@ -23,7 +23,7 @@ Acres = m² × 0.000247105.
 ## Usage
 
 ```bash
-python scripts/make_headlands_ring.py --input <boundary file> --out-dir <folder> [--width-m 21] [--force]
+python scripts/make_headlands_ring.py --input <boundary file> --out-dir <folder> [--width-m 21] [--pictures] [--force]
 ```
 
 - `--input`: any one-field vector file GeoPandas can read (GeoJSON, GeoPackage, shapefile).
@@ -31,6 +31,9 @@ python scripts/make_headlands_ring.py --input <boundary file> --out-dir <folder>
 - The input boundary file is only read, never modified.
 
 ## Pictures
+
+One command for files and pictures: add `--pictures [--title "WR 02"] [--prefix wr02]` to
+`make_headlands_ring.py`. To draw pictures from existing GeoPackages:
 
 ```bash
 python scripts/make_headlands_pictures.py --dir <folder with the two .gpkg files> --title "WR 02" [--prefix wr02] [--dpi 170] [--force]
