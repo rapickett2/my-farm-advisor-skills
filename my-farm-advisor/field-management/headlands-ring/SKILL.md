@@ -26,6 +26,13 @@ Outputs (EPSG:4326, one row each, columns `geometry`, `meters_squared`, `acres`)
 `field_boundary.gpkg` and `headlands_ring.gpkg`. Existing outputs are never overwritten unless
 `--force` is passed.
 
+Optional pictures (overview map and six-panel workflow figure) from those two files:
+
+```bash
+"$PY" my-farm-advisor/field-management/headlands-ring/scripts/make_headlands_pictures.py \
+  --dir "$FIELD/derived/features/headlands_ring_21m" --title "WR 02"
+```
+
 ## Rules
 
 - Inspect the input CRS before reprojecting; a missing CRS is an error, never assumed.
@@ -36,4 +43,4 @@ Outputs (EPSG:4326, one row each, columns `geometry`, `meters_squared`, `acres`)
 
 - [README.md](README.md) for the step-by-step workflow and NERREC 17 example.
 - [GUIDE.md](GUIDE.md) for the Python helpers (points, polygons, plots).
-- Test: `scripts/tests/smoke_make_headlands_ring.py`.
+- Tests: `scripts/tests/smoke_make_headlands_ring.py`, `scripts/tests/smoke_make_headlands_pictures.py`.

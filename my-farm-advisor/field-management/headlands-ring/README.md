@@ -30,6 +30,21 @@ python scripts/make_headlands_ring.py --input <boundary file> --out-dir <folder>
 - `--out-dir`: a new folder; the script refuses to overwrite existing outputs without `--force`.
 - The input boundary file is only read, never modified.
 
+## Pictures
+
+```bash
+python scripts/make_headlands_pictures.py --dir <folder with the two .gpkg files> --title "WR 02" [--prefix wr02] [--dpi 170] [--force]
+```
+
+Writes next to the GeoPackages:
+
+- `<prefix>_headlands_overview.png`: metric map with the field, yellow headlands ring, dashed inner
+  buffer line, a callout, and ring / field / interior areas.
+- `<prefix>_headlands_workflow_steps.png`: six panels following slide steps 1-9.
+
+`--prefix` defaults to a slug of the title. The interior is the ring's hole, so no width argument is
+needed. Existing pictures are never overwritten without `--force`.
+
 ## Example: NERREC 17 (ASU-Precision AG, Poinsett County, AR)
 
 ```bash
@@ -44,15 +59,17 @@ $PY my-farm-advisor/field-management/headlands-ring/scripts/make_headlands_ring.
 Result: input CRS84 / EPSG:4326 used without reprojection, UTM zone 15N (EPSG:32615) workspace,
 field 129,311.81 m² = 31.95 ac, 21 m headlands ring 33,545.89 m² = 8.29 ac (25.9 % of the field).
 
-## Test
+## Tests
 
 ```bash
 python scripts/tests/smoke_make_headlands_ring.py
+python scripts/tests/smoke_make_headlands_pictures.py
 ```
 
 Offline; uses a synthetic 200 m square (expected field 40,000 m², 21 m ring 15,036 m²) and checks
 CRS, row count, columns, areas, CRS handling for EPSG:5070 and missing-CRS inputs, and the
-no-overwrite rule.
+no-overwrite rule. The pictures test builds a normal and a narrow (whole-field ring) synthetic
+field, checks both PNGs, the no-overwrite rule, and rejection of non-EPSG:4326 inputs.
 
 ## Dependencies
 
