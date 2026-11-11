@@ -498,7 +498,8 @@ function selectField(id) {
   outline = L.geoJSON(f.geom, { style: { color: "#111", weight: 5, fill: false, opacity: 0.9 } }).addTo(map);
   L.geoJSON(f.geom, { style: { color: (FARMS.find(x => x.slug === f.farm) || {}).color || "#E69F00", weight: 2.5, fill: false } }).addTo(outline);
   map.fitBounds(outline.getBounds(), { padding: [30, 30], maxZoom: 18 });
-  history.replaceState(null, "", "#field=" + encodeURIComponent(f.id));
+  // Some browsers reject history changes for pages opened from disk (file://); never let that stop the viewer.
+  try { history.replaceState(null, "", "#field=" + encodeURIComponent(f.id)); } catch (e) { /* address bar not updated */ }
   renderYears();
   render();
 }
