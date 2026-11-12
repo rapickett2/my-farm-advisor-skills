@@ -48,6 +48,33 @@ cd my-farm-advisor/data-pipeline
 
 Use this pattern when the user asks to initialize the data-pipeline and seed X fields for a grower in a specified state. The seeded farm slug and farm name can be omitted; `farm_dashboard.py create` derives stable defaults from grower and state. Because this path runs the full farm pipeline after seeding boundaries, derived tables, field weather, real DEM terrain, soil outputs, CDL history, satellite/NDVI products, reports, cards, posters, and HTML/Markdown farm reports should generate automatically. The generated farm and field reports do not integrate terrain metrics in this change.
 
+Import grower-supplied boundaries (shapefile/GeoPackage/GeoJSON, one row per field) into canonical farms, then run the pipeline per farm. Use this instead of seeding when the user provides their own field polygons. Always dry-run first and show the field/acre summary; `--state-fips` is required for US so CDL does not fall back to Iowa:
+
+```bash
+export DATA_PIPELINE_DATA_ROOT=/absolute/path/to/my-farm-advisor-runtime
+cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/ingest/import_boundaries.py \
+  --source "/path/to/Farm Boundaries.shp" --state AR --state-fips 05 --dry-run
+```
+
+Offline importer check: run `src/scripts/tests/smoke_import_boundaries.py` with the runtime venv Python.
+
+Grower web maps: after pipeline runs, use the `grower-web-map/` subskill (read its `SKILL.md`/`AGENTS.md` before editing) and run `scripts/reporting/generate_grower_web_map.py --all-growers` from the runtime source copy. It is standalone, not part of `run_farm_pipeline.py`. Offline check: `src/scripts/tests/smoke_grower_web_map.py`.
+
+Multi-epoch lidar / land-leveling detection is opt-in and not part of `run_farm_pipeline.py`. Use it when the user asks whether fields were leveled or how elevation changed between flights. Dry-run the download first, then compare; always show the per-field PNGs, since straight seams in the dZ panel are data artifacts, not earthwork (see README "Multi-epoch lidar"):
+
+```bash
+export DATA_PIPELINE_DATA_ROOT=/absolute/path/to/my-farm-advisor-runtime
+cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" scripts/ingest/download_state_lidar.py --grower <grower> --farm <farm> --dry-run
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" scripts/reporting/compare_lidar_epochs.py --grower <grower> --farm <farm>
+```
+
+Offline comparison check: `src/scripts/tests/smoke_compare_lidar_epochs.py` with the runtime venv Python.
+
+Arkansas fields resolve terrain to the Arkansas GIS Office 0.5 m DEM automatically during normal pipeline runs (`--dem-source-policy arkansas` forces it). Aerial orthoimagery is opt-in: `scripts/ingest/download_state_orthoimagery.py --grower <grower> --farm <farm>` (dry-run first; defaults to the Arkansas 2023 ADOP 20 cm leaf-off RGB). Offline adapter check: `src/scripts/tests/smoke_arkansas_dem_adapter.py`.
+
 Current-shell export for an existing runtime:
 
 ```bash

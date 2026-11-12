@@ -20,6 +20,15 @@ This file records the source hierarchy and policy decisions for the My Farm Advi
 - Default download behavior: full county-level archive candidates are blocked unless an explicit adapter opt-in such as `allow_large_downloads=True` is supplied and runtime cache paths outside this repository are used. The default size guard records `fallback_reason='large_download_blocked_by_default_policy'` for bulky county archive references.
 - Caveat: programmatic access can vary by dataset and service. Adapters must preserve URLs, citation text, license notes, acquisition dates, access notes, size guard status, and any coverage limits. DeKalb/northern Illinois bbox context is a conservative metadata aid for discovery smoke tests, not a replacement for authoritative county boundary geometry.
 
+### Arkansas GIS Office 0.5 m lidar DEM
+
+- Role: Arkansas-specific primary source; finer than USGS 3DEP 1 m.
+- Official source: Arkansas GIS Office `DEM_HALF_METER_2026` ArcGIS ImageServer, `https://gis.arkansas.gov/arcgis/rest/services/ImageServices/DEM_HALF_METER_2026/ImageServer` (statewide units `Eastern_Unit*`, 0.5 m float32, EPSG:26915, published 2026-05-06), discoverable on the Arkansas Spatial Data Infrastructure portal (`geodata.gis.arkansas.gov`).
+- Policy (`arkansas_agio.py`, adapter id `arkansas_agio_dem`): discovered only for AOIs inside the Arkansas bbox and only with live downloads enabled; queries primary rasters (`Category=1`) under the AOI and emits one candidate whose `source_urls` are deterministic `exportImage` requests (AOI + 60 m margin, snapped to the 0.5 m grid, raw float32 meters, nearest neighbour, split into ≤4000-row strips). Ranks ahead of USGS 1 m by resolution; the shared retry loop falls back to USGS when a clip fails the nodata-ratio check. Source policy `arkansas` forces it; `us` and `auto` include it.
+- Licence/access: free public service, no account; the portal lists "No License Provided", so citation text names the Arkansas GIS Office and the service URL.
+- Caveat: the service publishes no vertical-datum metadata. Candidates carry a warning that NAVD88 meters are assumed; spot checks agree with the AGIO NAVD88 1 m county-lidar layer within ~0.1–0.2 m.
+- Multi-epoch work (2011–2014 county collections vs 2026) is a separate opt-in path: `data-pipeline/src/scripts/ingest/download_state_lidar.py` and `reporting/compare_lidar_epochs.py`.
+
 ### NASADEM
 
 - Role: preferred global DEM fallback after registered national or regional providers.
