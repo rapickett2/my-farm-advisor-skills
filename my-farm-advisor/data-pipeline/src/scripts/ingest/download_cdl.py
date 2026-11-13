@@ -66,14 +66,54 @@ def _download_cdl_raster(
     cdl_path.parent.mkdir(parents=True, exist_ok=True)
     url = f"https://nassgeodata.gmu.edu/nass_data_cache/byfips/CDL_{year}_{label}.tif"
     print(f"  Downloading CDL {year} {label}...")
-    with requests.get(url, stream=True, timeout=180) as resp:
-        resp.raise_for_status()
-        with open(cdl_path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    f.write(chunk)
+    _download_resumable(url, cdl_path)
     print(f"  Downloaded CDL {year} {label}: {cdl_path}")
     return cdl_path
+
+
+def _download_resumable(url: str, target: Path, attempts: int = 30) -> None:
+    """Stream ``url`` to ``target`` via ``.part``, resuming dropped transfers.
+
+    The NASS byfips server regularly closes long transfers early. Writing to a
+    temporary file and renaming only after the size matches Content-Length
+    keeps a truncated raster from ever sitting at the cached path.
+    """
+    part = target.with_name(target.name + ".part")
+    expected: int | None = None
+    for attempt in range(1, attempts + 1):
+        have = part.stat().st_size if part.exists() else 0
+        headers = {"Range": f"bytes={have}-"} if have else {}
+        interrupted = False
+        try:
+            with requests.get(url, stream=True, timeout=180, headers=headers) as resp:
+                if resp.status_code == 416 and expected is not None and have == expected:
+                    break
+                resp.raise_for_status()
+                if resp.status_code == 206:
+                    total = resp.headers.get("Content-Range", "").rpartition("/")[2]
+                    expected = int(total) if total.isdigit() else expected
+                    mode = "ab"
+                else:
+                    length = resp.headers.get("Content-Length")
+                    expected = int(length) if length and length.isdigit() else None
+                    mode = "wb"
+                with open(part, mode) as f:
+                    for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            f.write(chunk)
+        except (requests.ConnectionError, requests.exceptions.ChunkedEncodingError,
+                requests.Timeout) as exc:
+            interrupted = True
+            print(f"    transfer interrupted ({type(exc).__name__}); resuming, attempt {attempt}")
+        size = part.stat().st_size if part.exists() else 0
+        if expected is not None and size == expected:
+            break
+        if expected is None and not interrupted:
+            break  # server sent no length: trust a clean end of stream
+    size = part.stat().st_size if part.exists() else 0
+    if expected is not None and size != expected:
+        raise RuntimeError(f"incomplete download {url}: {size}/{expected} bytes after {attempts} attempts")
+    part.replace(target)
 
 
 def download_cdl(year, state_fips="19"):
