@@ -42,6 +42,12 @@ Optional popup rows (skipped silently when the pipeline step has not produced th
 | NDVI archive (seasons, scenes) | `fields/<field>/derived/summaries/ndvi_yearly_summary.json` |
 | Elevation (field + 20 m buffer), Terrain source | `fields/<field>/derived/tables/dem_terrain_summary.json`, `fields/<field>/manifests/dem_terrain_manifest.json` |
 | Lidar change verdict, Field grade | `derived/tables/<farm>_lidar_change_summary.csv` (opt-in `compare_lidar_epochs.py`) |
+| Irrigation | `manifests/field-attributes.csv` (grower-supplied; see below) |
+
+`manifests/field-attributes.csv` holds facts the boundaries cannot show, such as whether a field is
+under a center pivot. Columns: `field_id,irrigation,irrigation_source`; `irrigation` is one of
+`pivot`, `non_pivot`, `furrow_flood`, `none`. Write it by hand from what the grower tells you; never
+infer pivots from field shape (drawn field boundaries do not trace the irrigated circle).
 
 Grower, farm, and state come from the boundary properties (`grower_name`, `farm_name`, `state`)
 when present, falling back to `grower.json` / `farm.json` display names and the slugs. `farm.json`

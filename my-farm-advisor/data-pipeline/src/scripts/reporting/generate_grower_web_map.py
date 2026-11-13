@@ -161,6 +161,21 @@ def _crop_history(rotation_rows: dict, field_id: str) -> dict:
     return {f"Crop history ({years})" if years else "Crop history": row["rotation_sequence"].replace(" -> ", " → ")}
 
 
+def _field_attributes(attribute_rows: dict, field_id: str) -> dict:
+    """Grower-supplied facts that geometry cannot show (manifests/field-attributes.csv)."""
+    row = attribute_rows.get(field_id)
+    if not row or not row.get("irrigation"):
+        return {}
+    labels = {
+        "pivot": "Center pivot",
+        "non_pivot": "Not center pivot",
+        "furrow_flood": "Furrow / flood",
+        "none": "Dryland",
+    }
+    value = labels.get(row["irrigation"], row["irrigation"].replace("_", " ").capitalize())
+    return {"Irrigation": value}
+
+
 def _terrain(grower: str, farm: str, field_slug: str) -> dict:
     summary = _read_json(field_tables_dir(grower, farm, field_slug) / "dem_terrain_summary.json")
     manifest = _read_json(field_manifest_dir(grower, farm, field_slug) / "dem_terrain_manifest.json")
@@ -350,6 +365,11 @@ def _farm_features(grower: str, farm_path: Path, grower_label: str | None) -> tu
     farm_meta = _read_json(farm_path / "farm.json")
     slugs = field_slug_map_from_inventory(farm_manifest_dir(grower, farm) / "field-inventory.csv")
     rotation = {r["field_id"]: r for r in _read_csv(farm_cdl_rotation_path(grower, farm)) if r.get("field_id")}
+    attributes = {
+        r["field_id"]: r
+        for r in _read_csv(farm_manifest_dir(grower, farm) / "field-attributes.csv")
+        if r.get("field_id")
+    }
     changes: dict[str, list[dict]] = {}
     for row in _read_csv(farm_tables_dir(grower, farm) / f"{farm}_lidar_change_summary.csv"):
         changes.setdefault(row.get("field_id", ""), []).append(row)
@@ -379,6 +399,7 @@ def _farm_features(grower: str, farm_path: Path, grower_label: str | None) -> tu
         }
         if county or state:
             props["County / State"] = ", ".join(part for part in (county and f"{county} Co.", state) if part)
+        props.update(_field_attributes(attributes, field_id))
         for extra in (
             _soil(grower, farm, field_slug),
             _crop_history(rotation, field_id),

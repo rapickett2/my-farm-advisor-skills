@@ -87,6 +87,10 @@ def main() -> int:
         base = root / "data-pipeline"
         north = _farm(base, "north-farm", [("f-10", "Field 10", 0.0), ("f-2", "Field 2", 0.01), ("f-1", "Field 1", 0.02)])
         _farm(base, "south-farm", [("s-1", "South </script><A>", 0.05)])
+        (north / "manifests" / "field-attributes.csv").write_text(
+            "field_id,irrigation,irrigation_source\nf-1,pivot,user_confirmed\nf-2,non_pivot,user_confirmed\n",
+            encoding="utf-8",
+        )
         soil = north / "fields" / "f-2" / "soil"
         soil.mkdir(parents=True, exist_ok=True)
         (soil / "ssurgo_summary.csv").write_text(
@@ -160,6 +164,10 @@ def main() -> int:
             raise SmokeFailure(f"popup must start with Grower/Farm/Field: {first[:3]}")
         if "Dominant soil" not in dict(info["north-farm/f-2"]) or "Dominant soil" in dict(first):
             raise SmokeFailure("optional soil rows must appear only where data exists")
+        irrigation = {key: dict(rows).get("Irrigation") for key, rows in info.items()}
+        if irrigation.get("north-farm/f-1") != "Center pivot" or irrigation.get("north-farm/f-2") != "Not center pivot" \
+                or irrigation.get("north-farm/f-10") is not None:
+            raise SmokeFailure(f"irrigation rows must come from field-attributes.csv only: {irrigation}")
         names = [f["properties"]["name"] for f in features if f["properties"]["farm"] == "north-farm"]
         if names != ["Field 1", "Field 2", "Field 10"]:
             raise SmokeFailure(f"fields not naturally sorted: {names}")
