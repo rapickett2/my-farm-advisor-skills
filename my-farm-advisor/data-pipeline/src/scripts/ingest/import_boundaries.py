@@ -3,9 +3,11 @@
 # pyright: reportMissingImports=false
 """Import grower-supplied field boundaries into canonical runtime farm paths.
 
-Reads any vector file GeoPandas can open (shapefile, GeoPackage, GeoJSON) that
-holds one row per field with grower, farm, and field-name columns. Each
-grower/farm pair becomes a canonical farm under the runtime root:
+Reads any vector file GeoPandas can open (shapefile, GeoPackage, GeoJSON, KML)
+that holds one row per field with grower, farm, and field-name columns. KML
+exports from farm-management apps often pack a whole farm into one placemark as
+a multi-part geometry; ``--explode-multipart`` splits those into one field per
+part. Each grower/farm pair becomes a canonical farm under the runtime root:
 
     growers/<grower>/farms/<farm>/boundary/field_boundaries.geojson
     growers/<grower>/farms/<farm>/manifests/field-inventory.csv
@@ -92,6 +94,38 @@ def _polygonal(geom):
     return geom
 
 
+def _explode_multipart(
+    gdf: gpd.GeoDataFrame, prefix: str | None, name_column: str
+) -> gpd.GeoDataFrame:
+    """Split multi-part field geometries into one row per polygon part.
+
+    Farm-management exports routinely pack a whole farm into a single placemark,
+    so one KML row can carry ten disjoint fields. Parts are ordered north-to-south
+    then west-to-east, which keeps the derived numbering stable across re-imports.
+    """
+    rows: list[dict] = []
+    exploded = 0
+    for _, row in gdf.iterrows():
+        geom = row.geometry
+        parts = list(geom.geoms) if geom is not None and geom.geom_type == "MultiPolygon" else [geom]
+        parts = [part for part in parts if part is not None and not part.is_empty]
+        if len(parts) <= 1:
+            rows.append(dict(row))
+            continue
+        exploded += 1
+        parts.sort(key=lambda part: (-part.centroid.y, part.centroid.x))
+        label_prefix = prefix or str(row.get(name_column) or "").split(" ")[0] or "field"
+        for index, part in enumerate(parts, 1):
+            record = dict(row)
+            record["geometry"] = part
+            record[name_column] = f"{label_prefix} {index:02d}"
+            rows.append(record)
+
+    if exploded:
+        print(f"  Exploded {exploded} multi-part feature(s) into {len(rows)} fields")
+    return gpd.GeoDataFrame(rows, geometry="geometry", crs=gdf.crs)
+
+
 def _load_source(args: argparse.Namespace) -> gpd.GeoDataFrame:
     source = Path(args.source).expanduser().resolve()
     if not source.exists():
@@ -102,6 +136,12 @@ def _load_source(args: argparse.Namespace) -> gpd.GeoDataFrame:
         gdf = gdf.set_crs("EPSG:4326")
     gdf = gdf.to_crs("EPSG:4326")
 
+    # KML placemarks carry no grower/farm attributes, so allow constant values.
+    if args.grower_name:
+        gdf[args.grower_column] = args.grower_name
+    if args.farm_name:
+        gdf[args.farm_column] = args.farm_name
+
     columns = {
         "grower": args.grower_column,
         "farm": args.farm_column,
@@ -110,6 +150,9 @@ def _load_source(args: argparse.Namespace) -> gpd.GeoDataFrame:
     missing = [col for col in columns.values() if col not in gdf.columns]
     if missing:
         sys.exit(f"ERROR: missing columns {missing}; available: {list(gdf.columns)}")
+
+    if args.explode_multipart:
+        gdf = _explode_multipart(gdf, args.multipart_prefix, args.field_name_column)
 
     out = gpd.GeoDataFrame(
         {
@@ -299,10 +342,30 @@ def _run_pipeline(grower_slug: str, farm_slug: str, farm_name: str, force: bool)
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--source", required=True, help="Boundary file (.shp, .gpkg, .geojson)")
+    parser.add_argument("--source", required=True, help="Boundary file (.shp, .gpkg, .geojson, .kml)")
     parser.add_argument("--grower-column", default="CLIENT_NAM")
     parser.add_argument("--farm-column", default="FARM_NAME")
     parser.add_argument("--field-name-column", default="FIELD_NAME")
+    parser.add_argument(
+        "--grower-name",
+        default="",
+        help="Constant grower name for sources without a grower column (e.g. KML)",
+    )
+    parser.add_argument(
+        "--farm-name",
+        default="",
+        help="Constant farm name for sources without a farm column (e.g. KML)",
+    )
+    parser.add_argument(
+        "--explode-multipart",
+        action="store_true",
+        help="Split multi-part field geometries into one field per polygon part",
+    )
+    parser.add_argument(
+        "--multipart-prefix",
+        default="",
+        help="Field-name prefix for exploded parts (default: first word of the placemark name)",
+    )
     parser.add_argument(
         "--field-id-column",
         default="FIELD_ID",

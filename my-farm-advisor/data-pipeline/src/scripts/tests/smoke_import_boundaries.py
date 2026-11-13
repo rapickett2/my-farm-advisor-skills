@@ -58,6 +58,30 @@ def _write_source(path: Path) -> None:
     path.write_text(json.dumps({"type": "FeatureCollection", "features": features}), encoding="utf-8")
 
 
+def _write_kml_multipart(path: Path) -> None:
+    """One placemark holding ten disjoint fields, as farm-app KML exports do."""
+    rings = []
+    for row, y in enumerate((35.000, 34.990)):
+        for col in range(5):
+            x = -90.900 + col * 0.005
+            coords = [
+                (x, y), (x + 0.004, y), (x + 0.004, y + 0.004), (x, y + 0.004), (x, y),
+            ]
+            body = " ".join(f"{cx:.6f},{cy:.6f},0" for cx, cy in coords)
+            rings.append(
+                "<Polygon><tessellate>1</tessellate><outerBoundaryIs><LinearRing>"
+                f"<coordinates>{body}</coordinates></LinearRing></outerBoundaryIs></Polygon>"
+            )
+    path.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<kml xmlns="http://www.opengis.net/kml/2.2"><Document>'
+        "<Placemark><name>KML Boundaries</name><MultiGeometry>"
+        + "".join(rings)
+        + "</MultiGeometry></Placemark></Document></kml>\n",
+        encoding="utf-8",
+    )
+
+
 def _run(cmd: list[str], env: dict[str, str], cwd: Path, expect_ok: bool = True) -> str:
     result = subprocess.run(cmd, env=env, cwd=cwd, capture_output=True, text=True)
     if expect_ok and result.returncode != 0:
@@ -131,6 +155,35 @@ def main() -> int:
         if boundary.read_bytes() != before:
             raise SmokeFailure("--force did not restore boundaries")
         print("PASS: differing boundaries require --force")
+
+        # KML exports pack a farm into one multi-part placemark.
+        kml = Path(tmp) / "kml_boundaries.kml"
+        _write_kml_multipart(kml)
+        _run(
+            [sys.executable, "scripts/ingest/import_boundaries.py", "--source", str(kml),
+             "--field-name-column", "Name", "--grower-name", "KML Grower",
+             "--farm-name", "KML Farm", "--explode-multipart", "--multipart-prefix", "KF",
+             "--state", "AR", "--state-fips", "05"],
+            env,
+            src,
+        )
+        kml_farm = root / "data-pipeline" / "growers" / "kml-grower" / "farms" / "kml-farm"
+        kml_data = json.loads(
+            (kml_farm / "boundary" / "field_boundaries.geojson").read_text(encoding="utf-8")
+        )
+        names = [f["properties"]["field_name"] for f in kml_data["features"]]
+        if len(names) != 10:
+            raise SmokeFailure(f"multipart KML did not explode: {len(names)} fields")
+        if names != [f"KF {i:02d}" for i in range(1, 11)]:
+            raise SmokeFailure(f"unexpected exploded names: {names}")
+        north = kml_data["features"][0]["geometry"]["coordinates"][0]
+        south = kml_data["features"][5]["geometry"]["coordinates"][0]
+        if not min(c[1] for c in north) > max(c[1] for c in south):
+            raise SmokeFailure("exploded parts are not ordered north-to-south")
+        if any(len(coord) != 2 for f in kml_data["features"]
+               for coord in f["geometry"]["coordinates"][0]):
+            raise SmokeFailure("KML Z coordinates were not dropped")
+        print("PASS: multipart KML explodes to 10 ordered 2D fields")
     return 0
 
 
