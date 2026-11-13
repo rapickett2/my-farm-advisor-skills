@@ -10,6 +10,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.ticker  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
@@ -61,6 +62,14 @@ def _save(fig, path: Path) -> Path:
     fig.savefig(path)
     plt.close(fig)
     return path
+
+
+def _plain_log_x(ax) -> None:
+    """Log x axis labelled in plain acres (10, 20, 50, 100, 200) instead of 3×10¹."""
+    ax.set_xscale("log")
+    ax.xaxis.set_major_locator(matplotlib.ticker.FixedLocator([5, 10, 20, 30, 50, 100, 200, 300, 500]))
+    ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}"))
+    ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
 
 
 def _unit_titles(fields: pd.DataFrame) -> dict[str, str]:
@@ -115,7 +124,7 @@ def boundaries_shape(fields: pd.DataFrame, path: Path) -> Path:
         if ratio > 1.45 or row.acres < 15:
             ax.annotate(row.field_name, (row.acres, row.edge_m_per_acre), fontsize=6.5,
                         xytext=(4, 3), textcoords="offset points")
-    ax.set_xscale("log")
+    _plain_log_x(ax)
     ax.set_xlabel("Field area (acres, log scale)")
     ax.set_ylabel("Boundary length per acre (m/ac)")
     ax.set_title("Edge per acre: small and irregular fields carry more headland")
@@ -143,9 +152,10 @@ def boundaries_compare(fields: pd.DataFrame, path: Path) -> tuple[Path, pd.DataF
         for i, (g, vals) in enumerate(zip(growers, data), 1):
             ax.scatter(i + rng.uniform(-0.12, 0.12, len(vals)), vals, s=14, color=pal[g],
                        edgecolor="#222", linewidth=0.4, zorder=3)
-        h, p = stats.kruskal(*data) if all(len(d) > 1 for d in data) else (np.nan, np.nan)
+        ok = len(data) >= 2 and all(len(d) > 1 for d in data)
+        h, p = stats.kruskal(*data) if ok else (np.nan, np.nan)
         tests[col] = p
-        ax.set_title(f"{label}\nKruskal–Wallis p = {p:.3f}", fontsize=9)
+        ax.set_title(f"{label}\n" + (f"Kruskal–Wallis p = {p:.3f}" if ok else "one group: no test"), fontsize=9)
     fig.suptitle("Grower comparison — field boundaries", fontweight="bold", y=1.04)
     summary = fields.groupby("grower").agg(
         fields=("field_id", "size"),
@@ -250,7 +260,8 @@ def cdl_sequence(dom: pd.DataFrame, fields: pd.DataFrame, path: Path) -> Path:
     order = fields.sort_values(["grower", "field_name"])[["field_id", "field_name", "grower", "pivot"]]
     grid = dom.pivot_table(index="field_id", columns="year", values="crop", aggfunc="first")
     grid = grid.reindex(order["field_id"])
-    crops = sorted({c for c in grid.stack().unique()}, key=lambda c: (c not in CROP_COLORS, c))
+    present = [c for c in pd.unique(grid.to_numpy().ravel()) if isinstance(c, str)]
+    crops = sorted(present, key=lambda c: (c not in CROP_COLORS, c))
     codes = {c: i for i, c in enumerate(crops)}
     mat = grid.apply(lambda col: col.map(codes)).to_numpy(dtype=float)
     cmap = matplotlib.colors.ListedColormap([crop_color(c) for c in crops])
@@ -287,7 +298,7 @@ def cdl_purity(dom: pd.DataFrame, path: Path) -> Path:
         ax.annotate(row.field_name, (row.acres, row.crop_pct), fontsize=6.5, xytext=(4, -3),
                     textcoords="offset points")
     rho, p = stats.spearmanr(per_field["acres"], per_field["crop_pct"])
-    ax.set_xscale("log")
+    _plain_log_x(ax)
     ax.set_ylim(min(40, dom["crop_pct"].min() - 5), 101)
     ax.set_xlabel("Field area (acres, log scale)")
     ax.set_ylabel("Majority-crop share of field (%)")
@@ -376,19 +387,21 @@ def field_map(fields: gpd.GeoDataFrame, dom: pd.DataFrame, states: gpd.GeoDataFr
                 warnings.warn(f"basemap unavailable: {exc}")
         ax.set_axis_off()
         ax.set_title(f"{g} — {titles[g]}", fontsize=9, color=pal[g])
-        # 500 m scale bar (Web Mercator metres stretched by 1/cos(lat)).
+        # 500 m scale bar, bottom-right (attribution sits bottom-left).
+        # Web Mercator metres are stretched by 1/cos(lat).
         lat = float(fields.loc[fields["grower"] == g, "lat"].mean())
         bar = 500 / np.cos(np.radians(lat))
-        x0, y0 = minx - pad * 0.6, miny - pad * 0.6
-        ax.plot([x0, x0 + bar], [y0, y0], color="white", lw=3)
-        ax.text(x0 + bar / 2, y0 + pad * 0.25, "500 m", color="white", ha="center", fontsize=7)
+        x1, y0 = maxx + pad * 0.6, miny - pad * 0.45
+        ax.plot([x1 - bar, x1], [y0, y0], color="white", lw=3, solid_capstyle="butt")
+        ax.text(x1 - bar / 2, y0 + pad * 0.2, "500 m", color="white", ha="center", fontsize=7,
+                fontweight="bold")
 
     loc = fig.add_subplot(gs[1, 1])
     if states is not None and not states.empty:
         states.to_crs("EPSG:3857").plot(ax=loc, facecolor="#f2f2f2", edgecolor="#777", linewidth=0.6)
         for row in states.to_crs("EPSG:3857").itertuples():
             pt = row.geometry.representative_point()
-            loc.text(pt.x, pt.y, row.state_abbr, fontsize=7, color="#777", ha="center")
+            loc.text(pt.x, pt.y, row.state_abbr, fontsize=8, color="#888", ha="center", clip_on=True)
     pts = gpd.GeoDataFrame(
         fields.groupby("grower")[["lon", "lat"]].mean().reset_index(),
         geometry=gpd.points_from_xy(*fields.groupby("grower")[["lon", "lat"]].mean().to_numpy().T),
@@ -405,6 +418,8 @@ def field_map(fields: gpd.GeoDataFrame, dom: pd.DataFrame, states: gpd.GeoDataFr
     loc.set_ylim(miny - span * 0.7, maxy + span * 0.7)
     loc.set_xticks([])
     loc.set_yticks([])
+    loc.set_xlabel("")
+    loc.set_ylabel("")
     loc.set_title("Locator — Mid-South", fontsize=9)
     crops = sorted(set(web["crop"]), key=lambda c: (c not in CROP_COLORS, c))
     handles = [Patch(color=crop_color(c), alpha=0.7, label=c) for c in crops]

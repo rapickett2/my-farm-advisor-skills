@@ -85,6 +85,8 @@ def _write_cdl(base: Path) -> None:
         for year in (2021, 2022):
             arr = np.full((height, width), 1, dtype=np.uint8)
             arr[:, width // 2 + (year % 2) * 10:] = 5
+            if fips == "28" and year == 2022:
+                arr[:, 36:62] = 0  # first south field is all "No Data": a gap in the rotation grid
             profile = {"driver": "GTiff", "width": width, "height": height, "count": 1, "dtype": "uint8",
                        "crs": "EPSG:4326", "transform": from_origin(lon0, lat0 + 0.01, res, res)}
             with rasterio.open(rasters / f"CDL_{year}_{fips}.tif", "w", **profile) as dst:
@@ -120,8 +122,9 @@ def main() -> int:
         if len(fields) != 6 or fields["pivot"].sum() != 2 or set(fields["grower"]) != {"MO", "MS"}:
             raise SmokeFailure(f"fields table wrong:\n{fields[['grower', 'field_name', 'pivot']]}")
         dom = pd.read_csv(out / "tables" / "cdl_majority_crop.csv")
-        if len(dom) != 12 or not set(dom["crop"]) <= {"Corn", "Soybeans"}:
-            raise SmokeFailure(f"CDL majority table wrong: {len(dom)} rows, {set(dom['crop'])}")
+        if len(dom) != 11 or not set(dom["crop"]) <= {"Corn", "Soybeans"}:
+            raise SmokeFailure(f"CDL majority table wrong (expect 11 = 12 minus one No Data gap): "
+                               f"{len(dom)} rows, {set(dom['crop'])}")
         season = pd.read_csv(out / "tables" / "season_weather.csv")
         ms, mo = (season.groupby("grower")["gdd_f"].mean()[k] for k in ("MS", "MO"))
         if not ms > mo:
