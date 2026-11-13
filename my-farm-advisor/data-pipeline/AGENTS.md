@@ -48,7 +48,7 @@ cd my-farm-advisor/data-pipeline
 
 Use this pattern when the user asks to initialize the data-pipeline and seed X fields for a grower in a specified state. The seeded farm slug and farm name can be omitted; `farm_dashboard.py create` derives stable defaults from grower and state. Because this path runs the full farm pipeline after seeding boundaries, derived tables, field weather, real DEM terrain, soil outputs, CDL history, satellite/NDVI products, reports, cards, posters, and HTML/Markdown farm reports should generate automatically. The generated farm and field reports do not integrate terrain metrics in this change.
 
-Import grower-supplied boundaries (shapefile/GeoPackage/GeoJSON, one row per field) into canonical farms, then run the pipeline per farm. Use this instead of seeding when the user provides their own field polygons. Always dry-run first and show the field/acre summary; `--state-fips` is required for US so CDL does not fall back to Iowa:
+Import grower-supplied boundaries (shapefile/GeoPackage/GeoJSON/KML, one row per field) into canonical farms, then run the pipeline per farm. Use this instead of seeding when the user provides their own field polygons. KML exports usually need `--grower-name`, `--farm-name`, `--field-name-column Name`, and `--explode-multipart` because farm apps pack a whole farm into one multi-part placemark. Always dry-run first and show the field/acre summary; `--state-fips` is required for US so CDL does not fall back to Iowa:
 
 ```bash
 export DATA_PIPELINE_DATA_ROOT=/absolute/path/to/my-farm-advisor-runtime
@@ -62,7 +62,7 @@ Offline importer check: run `src/scripts/tests/smoke_import_boundaries.py` with 
 
 Grower web maps: after pipeline runs, use the `grower-web-map/` subskill (read its `SKILL.md`/`AGENTS.md` before editing) and run `scripts/reporting/generate_grower_web_map.py --all-growers` from the runtime source copy. It is standalone, not part of `run_farm_pipeline.py`. Offline check: `src/scripts/tests/smoke_grower_web_map.py`.
 
-Multi-epoch lidar / land-leveling detection is opt-in and not part of `run_farm_pipeline.py`. Use it when the user asks whether fields were leveled or how elevation changed between flights. Dry-run the download first, then compare; always show the per-field PNGs, since straight seams in the dZ panel are data artifacts, not earthwork (see README "Multi-epoch lidar"):
+Multi-epoch lidar / land-leveling detection is opt-in and not part of `run_farm_pipeline.py`. Use it when the user asks whether fields were leveled or how elevation changed between flights. The service preset follows the farm's `state` (`arkansas`, `missouri`, `mississippi`; `--preset` overrides); Missouri and Mississippi are single-epoch, so they give terrain clips but no change verdicts. Dry-run the download first, then compare; always show the per-field PNGs, since straight seams in the dZ panel are data artifacts, not earthwork (see README "Multi-epoch lidar"):
 
 ```bash
 export DATA_PIPELINE_DATA_ROOT=/absolute/path/to/my-farm-advisor-runtime

@@ -94,7 +94,7 @@ cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
 
 ## Import your own field boundaries
 
-To run the pipeline on grower-supplied polygons instead of sampled OSM/CSB fields, import any shapefile, GeoPackage, or GeoJSON with one row per field. Each grower/farm pair in the file becomes a canonical farm (boundary GeoJSON, `field-inventory.csv`, and `user_upload_fields_provenance.json` with the source sha256):
+To run the pipeline on grower-supplied polygons instead of sampled OSM/CSB fields, import any shapefile, GeoPackage, GeoJSON, or KML with one row per field. Each grower/farm pair in the file becomes a canonical farm (boundary GeoJSON, `field-inventory.csv`, and `user_upload_fields_provenance.json` with the source sha256):
 
 ```bash
 cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
@@ -106,6 +106,17 @@ cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
 ```
 
 Column names default to the common FMIS export layout (`CLIENT_NAM`, `FARM_NAME`, `FIELD_NAME`, `FIELD_ID`); override them with `--grower-column`, `--farm-column`, `--field-name-column`, and `--field-id-column`. Geometries are reprojected to EPSG:4326, repaired, and merged per field; `area_acres` is computed in EPSG:5070, and `county_fips` is filled from the shared county layer when present. Blank field IDs are derived as `<farm-slug>-<field-name-slug>`, and output is sorted, so re-importing the same file is byte-identical. `--state-fips` is required for US imports so the CDL step reads the right state. Drop `--dry-run` to write files, add `--grower "Name"` to import one grower, `--force` to replace boundaries that differ, and `--run-pipeline` to run `run_farm_pipeline.py` for each imported farm. Offline check: `scripts/tests/smoke_import_boundaries.py`.
+
+Farm-management KML exports usually carry no grower/farm attributes and often pack a whole farm into one placemark as a multi-part geometry. Pass `--grower-name` and `--farm-name` for the constant values, `--field-name-column Name` for the placemark label, and `--explode-multipart` to split the parts into one field per polygon. Exploded parts are numbered `<prefix> 01`, `02`, … ordered north-to-south then west-to-east, so re-imports keep the same numbering:
+
+```bash
+"${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \
+  scripts/ingest/import_boundaries.py \
+  --source "/path/to/LC Boundaries.kml" \
+  --field-name-column Name --grower-name "Grower Name" --farm-name "Farm Name" \
+  --explode-multipart --multipart-prefix LC \
+  --state AR --state-fips 05 --dry-run
+```
 
 Keep grower boundary files out of Git; only the runtime tree should hold them.
 
@@ -142,17 +153,25 @@ Outputs: `fields/<field>/satellite/aerial/<label>_rgb.tif` + `manifest.json` (se
 
 ## Multi-epoch lidar and land-leveling detection (opt-in)
 
-Where a state publishes several lidar flights as ArcGIS ImageServers, clip every collection that covers each field, then compare the flights. Defaults target the Arkansas GIS Office (free public services): `DEM_HALF_METER_2026` (0.5 m statewide, epoch 2026) and `DEM_1M_2018` (a mosaic of 2011–2014 county collections; each export is locked to one named collection, and the epoch is parsed from its name). Other states: pass `--service <ImageServer URL>` (repeatable).
+Where a state publishes lidar as ArcGIS ImageServers, clip every collection that covers each field, then compare the flights. The service preset is picked from the farm's `state` (override with `--preset`):
+
+| Preset | Service | Epochs | Mode |
+|---|---|---|---|
+| `arkansas` | Arkansas GIS Office `DEM_HALF_METER_2026` (0.5 m) + `DEM_1M_2018` (2011–2014 county collections) | 2+ | one clip per locked collection; epoch parsed from the collection name |
+| `missouri` | MSDIS `MO_Southeast11Counties_2024_B24_DEM_UTM` (USGS 3DEP QL1, 0.5 m, spring 2024; Bootheel incl. Pemiscot) | 1 | mosaic |
+| `mississippi` | MARIS/MDEQ `MS_Statewide_Lidar_Mosaic_2019_IS` (Delta tiles from the USGS MS Delta project) | 1 | mosaic; requested in UTM 15N, US survey feet converted to metres |
+
+Missouri and Mississippi services index individual tiles rather than whole flights, so they run in mosaic mode (one clip per service per field). Both are single-epoch, so they supply high-resolution terrain but no land-leveling change detection. Other states: pass `--service <ImageServer URL>` (repeatable, collection mode).
 
 ```bash
 cd "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/src"
 PY="${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python"
-"$PY" scripts/ingest/download_state_lidar.py --grower mfp --farm farm-1723 --dry-run
-"$PY" scripts/ingest/download_state_lidar.py --grower mfp --farm farm-1723
-"$PY" scripts/reporting/compare_lidar_epochs.py --grower mfp --farm farm-1723
+"$PY" scripts/ingest/download_state_lidar.py --grower wrightland-brothers --farm wrightland --dry-run
+"$PY" scripts/ingest/download_state_lidar.py --grower wrightland-brothers --farm wrightland
+"$PY" scripts/reporting/compare_lidar_epochs.py --grower wrightland-brothers --farm wrightland
 ```
 
-`download_state_lidar.py` writes raw float32 clips (native CRS, snapped to each collection's pixel grid, field + 20 m buffer, split into strips under the 4100 px export limit) to `fields/<field>/terrain/state_lidar/<epoch>_<collection>.tif`, plus a manifest with service URL, collection, field coverage, sha256, and attribution. Collections whose footprint touches a field but hold no pixels there are recorded as `empty`. Re-runs skip clips whose manifest hash still matches; `--force` re-exports.
+`download_state_lidar.py` writes raw float32 clips (native CRS — or the preset's output CRS — snapped to the pixel grid, field + 20 m buffer, split into strips under the 4100 px export limit) to `fields/<field>/terrain/state_lidar/<epoch>_<collection>.tif`, plus a manifest with service URL, collection, mode, field coverage, sha256, attribution, and any vertical-unit conversion. Collections whose footprint touches a field but hold no pixels there are recorded as `empty`. Re-runs skip clips whose manifest hash still matches; `--force` re-exports.
 
 `compare_lidar_epochs.py` picks the best collection per epoch and, for every epoch pair, aligns both surfaces on the coarser grid (finer one cell-averaged) and computes dZ = later − earlier. One vertical bias per farm and collection pair (median dZ over the rings just outside all fields) is removed, because datum/geoid and processing offsets are farm-wide while earthwork is local; each field's own edge change is reported separately. It writes per-field dZ GeoTIFFs, JSON stats, a 4-panel PNG (both hillshades, dZ map with cut red / fill blue, elevation histograms), `derived/tables/<farm>_lidar_change_summary.csv`, and `derived/reports/<farm>_lidar_change.md`. Verdicts are rule-based with thresholds printed in every output:
 
