@@ -91,6 +91,20 @@ def main() -> int:
             "field_id,irrigation,irrigation_source\nf-1,pivot,user_confirmed\nf-2,non_pivot,user_confirmed\n",
             encoding="utf-8",
         )
+        lidar = north / "fields" / "f-1" / "terrain" / "state_lidar"
+        lidar.mkdir(parents=True, exist_ok=True)
+        (lidar / "manifest.json").write_text(
+            json.dumps({
+                "dataset_name": "state_lidar",
+                "attribution": "Smoke lidar",
+                "collections": [
+                    {"epoch": "2024", "collection": "SMOKE_B24", "pixel_size_m": 0.5, "status": "ok"},
+                    {"epoch": "2019", "collection": "SMOKE_OLD", "pixel_size_m": 1.0, "status": "ok"},
+                    {"epoch": "2014", "collection": "SMOKE_EMPTY", "pixel_size_m": 1.0, "status": "empty"},
+                ],
+            }),
+            encoding="utf-8",
+        )
         soil = north / "fields" / "f-2" / "soil"
         soil.mkdir(parents=True, exist_ok=True)
         (soil / "ssurgo_summary.csv").write_text(
@@ -168,6 +182,11 @@ def main() -> int:
         if irrigation.get("north-farm/f-1") != "Center pivot" or irrigation.get("north-farm/f-2") != "Not center pivot" \
                 or irrigation.get("north-farm/f-10") is not None:
             raise SmokeFailure(f"irrigation rows must come from field-attributes.csv only: {irrigation}")
+        lidar_row = {key: dict(rows).get("State lidar") for key, rows in info.items()}
+        if lidar_row.get("north-farm/f-1") != "2024 SMOKE_B24 (0.5 m) · 2019 SMOKE_OLD (1 m)":
+            raise SmokeFailure(f"state lidar row must list newest first and skip empty clips: {lidar_row}")
+        if lidar_row.get("north-farm/f-2") is not None:
+            raise SmokeFailure("state lidar row must be omitted where no clip exists")
         names = [f["properties"]["name"] for f in features if f["properties"]["farm"] == "north-farm"]
         if names != ["Field 1", "Field 2", "Field 10"]:
             raise SmokeFailure(f"fields not naturally sorted: {names}")

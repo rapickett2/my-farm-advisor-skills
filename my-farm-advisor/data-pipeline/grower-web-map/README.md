@@ -42,6 +42,7 @@ Optional popup rows (skipped silently when the pipeline step has not produced th
 | NDVI archive (seasons, scenes) | `fields/<field>/derived/summaries/ndvi_yearly_summary.json` |
 | Elevation (field + 20 m buffer), Terrain source | `fields/<field>/derived/tables/dem_terrain_summary.json`, `fields/<field>/manifests/dem_terrain_manifest.json` |
 | Lidar change verdict, Field grade | `derived/tables/<farm>_lidar_change_summary.csv` (opt-in `compare_lidar_epochs.py`) |
+| State lidar (epochs, resolution) | `fields/<field>/terrain/state_lidar/manifest.json` (opt-in `download_state_lidar.py`; lists `ok` clips newest first) |
 | Irrigation | `manifests/field-attributes.csv` (grower-supplied; see below) |
 
 `manifests/field-attributes.csv` holds facts the boundaries cannot show, such as whether a field is
