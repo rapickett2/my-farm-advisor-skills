@@ -59,7 +59,7 @@ Outputs go to `${DATA_PIPELINE_DATA_ROOT}/data-pipeline/eda/field-eda/`:
 
 ```
 field_eda_report.html        one page, figures embedded
-figures/01_…10_*.png         static figures
+figures/01_…09_*.png         static figures (10_field_map.jpg: imagery map, JPEG to stay small)
 tables/*.csv                 fields, season weather, CDL composition and majority crop, summaries
 ```
 

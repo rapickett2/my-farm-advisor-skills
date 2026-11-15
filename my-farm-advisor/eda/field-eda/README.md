@@ -21,7 +21,7 @@ Start with [`GUIDE.md`](GUIDE.md) for the workflow and command; agents also read
 | 7 | Majority CDL crop per field per year | Cropland | field view |
 | 8 | Majority-crop share vs field size | Cropland | field view |
 | 9 | Crop mix by year and rotation rate per grower | Cropland | grower comparison |
-| 10 | Fields on imagery coloured by latest crop, pivots dashed, locator | Geospatial | map |
+| 10 | Fields on imagery coloured by latest crop, pivots dashed, locator (JPEG) | Geospatial | map |
 
 Plus CSV tables (fields, season weather, CDL composition, summaries) and `field_eda_report.html`, a
 single self-contained page with every figure embedded and findings computed from the tables.

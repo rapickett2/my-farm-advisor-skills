@@ -118,7 +118,7 @@ def main() -> int:
         if rc != 0:
             raise SmokeFailure(f"run_field_eda returned {rc}")
 
-        figures = sorted(p.name for p in (out / "figures").glob("*.png"))
+        figures = sorted(p.name for p in (out / "figures").iterdir() if p.suffix in {".png", ".jpg"})
         if len(figures) != 10:
             raise SmokeFailure(f"expected 10 figures (3 categories x 3 + map), got {figures}")
         print("PASS: 10 static figures (2 views + 1 comparison per category, plus map)")
@@ -141,12 +141,13 @@ def main() -> int:
         page = (out / "field_eda_report.html").read_text(encoding="utf-8")
         import re
 
-        text = re.sub(r"data:image/png;base64,[A-Za-z0-9+/=]+", "", page)
+        text = re.sub(r"data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+", "", page)
         if page.count("<img ") != 10 or re.search(r"\bnan\b", text, re.I) or "<script" in text.lower():
             raise SmokeFailure("report must embed 10 images, contain no NaN text and no scripts")
         if (out / "field_eda_report.html").stat().st_size > 1_000_000:
             raise SmokeFailure("report exceeds the 1 MB committed-asset limit")
-        if not (pub / "field_eda_report.html").exists() or len(list((pub / "figures").glob("*.png"))) != 10:
+        published = [p for p in (pub / "figures").iterdir() if p.suffix in {".png", ".jpg"}]
+        if not (pub / "field_eda_report.html").exists() or len(published) != 10:
             raise SmokeFailure("--publish-dir did not copy the report and figures")
         print("PASS: single self-contained static HTML report under 1 MB, published copy")
     return 0

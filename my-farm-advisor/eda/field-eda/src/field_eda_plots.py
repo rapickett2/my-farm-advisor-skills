@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import calendar
 import warnings
 from pathlib import Path
 
 import geopandas as gpd
 import matplotlib
+import matplotlib.patheffects as pe
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -59,7 +61,12 @@ def crop_color(crop: str) -> str:
 
 def _save(fig, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path)
+    # Imagery maps are photographic: JPEG keeps them ~3x smaller than PNG, which
+    # matters because every figure is base64-embedded in a single HTML page.
+    if path.suffix.lower() in {".jpg", ".jpeg"}:
+        fig.savefig(path, pil_kwargs={"quality": 82, "optimize": True})
+    else:
+        fig.savefig(path)
     plt.close(fig)
     return path
 
@@ -220,12 +227,13 @@ def weather_gdd(weather: pd.DataFrame, path: Path, start_month: int = 4, end_mon
             d = unit_daily[(unit_daily["grower"] == g) & (unit_daily["year"] == yr)]
             ax.plot(d["doy"], d["cum"], color=cmap(j), lw=1.4, label=str(yr))
         ax.set_title(g)
-        ax.set_xlabel("Day of year")
         ax.grid(alpha=0.25)
     axes[0].set_ylabel("Cumulative GDD (°F, 86/50)")
-    axes[-1].legend(frameon=False, fontsize=7, loc="upper left")
-    fig.suptitle(f"Growing-degree-day accumulation, {MONTHS[start_month-1]}–{MONTHS[end_month-1]} "
-                 "(Apr 1 – Sep 30)", fontweight="bold", y=1.03)
+    handles = [Line2D([], [], color=cmap(j), lw=1.6, label=str(yr)) for j, yr in enumerate(years)]
+    fig.legend(handles=handles, ncol=len(years), frameon=False, fontsize=7.5,
+               loc="lower center", bbox_to_anchor=(0.5, -0.05))
+    fig.suptitle(f"Cumulative GDD, {calendar.month_abbr[start_month]} 1 – "
+                 f"{calendar.month_abbr[end_month]} 30 (day of year)", fontweight="bold", y=1.03)
     return _save(fig, path)
 
 
@@ -246,7 +254,9 @@ def weather_compare(season: pd.DataFrame, path: Path) -> tuple[Path, pd.DataFram
                    color=pal[g], label=g, edgecolor="#222", linewidth=0.3)
         ax.set_xticks(range(len(years)), years)
         ax.set_title(label, fontsize=9)
-    axes[0].legend(frameon=False, fontsize=7)
+    handles = [Patch(color=pal[g], label=g) for g in growers]
+    fig.legend(handles=handles, ncol=len(growers), frameon=False, fontsize=8,
+               loc="lower center", bbox_to_anchor=(0.5, -0.06))
     fig.suptitle("Grower comparison — growing season (Apr–Sep) weather by year",
                  fontweight="bold", y=1.04)
     summary = unit.groupby("grower")[["gdd_f", "precip_in", "hot_days"]].agg(["mean", "min", "max"])
@@ -294,7 +304,8 @@ def cdl_purity(dom: pd.DataFrame, path: Path) -> Path:
     for g, d in per_field.groupby("grower"):
         ax.scatter(d["acres"], d["crop_pct"], s=42, color=pal[g], edgecolor="#222", linewidth=0.6,
                    label=f"{g} (field median)", zorder=3)
-    for row in per_field[per_field["crop_pct"] < 80].itertuples():
+    # Label the three least pure fields: they are the ones the findings text names.
+    for row in per_field.nsmallest(3, "crop_pct").itertuples():
         ax.annotate(row.field_name, (row.acres, row.crop_pct), fontsize=6.5, xytext=(4, -3),
                     textcoords="offset points")
     rho, p = stats.spearmanr(per_field["acres"], per_field["crop_pct"])
@@ -334,7 +345,8 @@ def cdl_compare(dom: pd.DataFrame, path: Path) -> tuple[Path, pd.DataFrame]:
                        linewidth=0.4, label=c)
                 bottom += share[c].to_numpy()
         ax.set_xticks(range(len(years)), [str(y)[2:] for y in years])
-        ax.set_title(f"{g} — crop changes on {rotation.get(g, np.nan):.0%} of acres/yr", fontsize=9)
+        # Two-line title: a single long line collides with the neighbouring panel.
+        ax.set_title(f"{g}\n{rotation.get(g, np.nan):.0%} of acres change crop/yr", fontsize=9)
     axes[0].set_ylabel("Share of grower acres (%)")
     handles = [Patch(color=crop_color(c), label=c) for c in crops]
     fig.legend(handles=handles, ncol=min(6, len(crops)), frameon=False, fontsize=7,
@@ -387,14 +399,20 @@ def field_map(fields: gpd.GeoDataFrame, dom: pd.DataFrame, states: gpd.GeoDataFr
                 warnings.warn(f"basemap unavailable: {exc}")
         ax.set_axis_off()
         ax.set_title(f"{g} — {titles[g]}", fontsize=9, color=pal[g])
-        # 500 m scale bar, bottom-right (attribution sits bottom-left).
+        # 500 m scale bar, bottom-right (attribution sits bottom-left). Draw it in
+        # axes coordinates: a data-coordinate bar placed past maxx is clipped.
         # Web Mercator metres are stretched by 1/cos(lat).
         lat = float(fields.loc[fields["grower"] == g, "lat"].mean())
-        bar = 500 / np.cos(np.radians(lat))
-        x1, y0 = maxx + pad * 0.6, miny - pad * 0.45
-        ax.plot([x1 - bar, x1], [y0, y0], color="white", lw=3, solid_capstyle="butt")
-        ax.text(x1 - bar / 2, y0 + pad * 0.2, "500 m", color="white", ha="center", fontsize=7,
-                fontweight="bold")
+        bar_frac = min(0.30, (500 / np.cos(np.radians(lat))) / (maxx - minx + 2 * pad))
+        # Cased bar above the two-line Esri attribution, legible on any imagery.
+        x0, x1, y0 = 0.96 - bar_frac, 0.96, 0.17
+        ax.plot([x0, x1], [y0, y0], transform=ax.transAxes, color="#111", lw=4.5,
+                solid_capstyle="butt", zorder=5)
+        ax.plot([x0, x1], [y0, y0], transform=ax.transAxes, color="white", lw=2.5,
+                solid_capstyle="butt", zorder=6)
+        ax.text((x0 + x1) / 2, y0 + 0.02, "500 m", transform=ax.transAxes, color="white", ha="center",
+                fontsize=7, fontweight="bold", zorder=6,
+                path_effects=[pe.withStroke(linewidth=2, foreground="#111")])
 
     loc = fig.add_subplot(gs[1, 1])
     if states is not None and not states.empty:

@@ -26,6 +26,7 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -61,7 +62,8 @@ def _pct(x: float) -> str:
 
 
 def _img(path: Path) -> str:
-    return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+    mime = "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
+    return f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
 
 
 def build_findings(fields, bsum, wsum, spread, mix, dom) -> dict[str, list[str]]:
@@ -141,10 +143,17 @@ def build_findings(fields, bsum, wsum, spread, mix, dom) -> dict[str, list[str]]
         f"{rot.index[0]} versus {_pct(rot.iloc[-1])} at {rot.index[-1]}."
     )
     low = dom.groupby("field_name")["crop_pct"].median().sort_values()
+    per_field = dom.groupby(["field_name", "acres"])["crop_pct"].median().reset_index()
+    rho, p = stats.spearmanr(per_field["acres"], per_field["crop_pct"])
+    size_note = (
+        "purity does not track field size" if not np.isfinite(p) or p >= 0.05
+        else "smaller fields carry more mixed labels"
+    )
     out["cdl"].append(
         f"The majority crop covers a median {dom['crop_pct'].median():.0f}% of a field-year. Lowest: "
         + ", ".join(f"{n} ({v:.0f}%)" for n, v in low.head(3).items())
-        + " — mixed labels come from 30 m edge pixels on small fields and from split or double-cropped fields."
+        + f". Across fields {size_note} (Spearman ρ = {rho:.2f}, p = {p:.3f}), so mixed labels come "
+        "from split or double-cropped fields rather than from small fields alone."
     )
     return out
 
@@ -261,7 +270,7 @@ def main(argv: list[str] | None = None) -> int:
     figs["weather_compare"], wsum = plots.weather_compare(season, fig_dir / "06_weather_compare.png")
     figs["cdl_compare"], mix = plots.cdl_compare(dom, fig_dir / "09_cdl_compare.png")
     states = _states(base, set(fields["state_fips"].astype(str)))
-    figs["map"] = plots.field_map(fields, dom, states, fig_dir / "10_field_map.png", basemap=not args.no_basemap)
+    figs["map"] = plots.field_map(fields, dom, states, fig_dir / "10_field_map.jpg", basemap=not args.no_basemap)
 
     tab_dir.mkdir(parents=True, exist_ok=True)
     fields.drop(columns="geometry").to_csv(tab_dir / "fields.csv", index=False)
