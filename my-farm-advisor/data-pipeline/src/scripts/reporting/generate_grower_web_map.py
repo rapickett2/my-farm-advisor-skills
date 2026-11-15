@@ -57,6 +57,7 @@ from paths import (
     farm_manifest_dir,
     farm_tables_dir,
     field_manifest_dir,
+    field_terrain_dir,
     field_soil_dir,
     field_soil_polygon_path,
     field_soil_summary_path,
@@ -189,6 +190,21 @@ def _terrain(grower: str, farm: str, field_slug: str) -> dict:
         resolution = source.get("resolution_m")
         out["Terrain source"] = source["source_name"] + (f" ({resolution:g} m)" if resolution else "")
     return out
+
+
+def _state_lidar(grower: str, farm: str, field_slug: str) -> dict:
+    """State lidar clips (opt-in download_state_lidar.py): epochs and resolution."""
+    manifest = _read_json(field_terrain_dir(grower, farm, field_slug) / "state_lidar" / "manifest.json")
+    clips = [c for c in manifest.get("collections", []) if c.get("status") == "ok" and c.get("epoch")]
+    if not clips:
+        return {}
+    clips.sort(key=lambda c: str(c["epoch"]), reverse=True)
+    parts = []
+    for clip in clips:
+        pixel = clip.get("pixel_size_m")
+        label = f"{clip['epoch']} {clip.get('collection', '')}".strip()
+        parts.append(f"{label} ({float(pixel):g} m)" if pixel else label)
+    return {"State lidar": " · ".join(parts)}
 
 
 def _ndvi(grower: str, farm: str, field_slug: str) -> dict:
@@ -405,6 +421,7 @@ def _farm_features(grower: str, farm_path: Path, grower_label: str | None) -> tu
             _crop_history(rotation, field_id),
             _ndvi(grower, farm, field_slug),
             _terrain(grower, farm, field_slug),
+            _state_lidar(grower, farm, field_slug),
             _lidar_change(changes, field_id),
         ):
             props.update(extra)
