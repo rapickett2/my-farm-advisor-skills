@@ -119,7 +119,16 @@ def load_weather(base: Path, fields: gpd.GeoDataFrame, start_year: int, end_year
         if not path.exists():
             print(f"  Warning: no weather for {row.field_name} ({path})")
             continue
-        df = pd.read_csv(path, parse_dates=["date"])
+        df = pd.read_csv(path)
+        if df.empty or "date" not in df.columns:
+            # Stub created by the boundary import before the weather step ran.
+            print(f"  Warning: no weather rows for {row.field_name} ({path})")
+            continue
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df = df.dropna(subset=["date"])
+        if df.empty:
+            print(f"  Warning: no usable dates for {row.field_name} ({path})")
+            continue
         df["field_id"], df["grower"], df["field_name"] = row.field_id, row.grower, row.field_name
         frames.append(df)
     if not frames:

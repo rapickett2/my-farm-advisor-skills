@@ -39,10 +39,14 @@ def _years(text: str) -> list[int]:
 
 
 def _states(base: Path, fips: set[str]) -> gpd.GeoDataFrame | None:
-    path = base / "shared" / "geoadmin" / "l2_counties" / "counties_usa.geojson"
-    if not path.exists():
+    folder = base / "shared" / "geoadmin" / "l2_counties"
+    parquet, geojson = folder / "counties_usa.parquet", folder / "counties_usa.geojson"
+    if parquet.exists():  # same data, ~10x faster to read than the 220 MB GeoJSON
+        counties = gpd.read_parquet(parquet)
+    elif geojson.exists():
+        counties = gpd.read_file(geojson)
+    else:
         return None
-    counties = gpd.read_file(path)
     counties["state_fips"] = counties["state_fips"].astype(str).str.zfill(2)
     # Draw the target states plus their neighbours inside the locator window.
     states = counties.dissolve(by="state_fips", as_index=False)[["state_fips", "geometry"]]

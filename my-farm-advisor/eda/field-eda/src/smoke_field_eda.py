@@ -55,6 +55,11 @@ def _write_unit(base: Path, unit, sizes: list[float]) -> None:
         inv.append((fid, fid))
         wdir = root / "fields" / fid / "weather"
         wdir.mkdir(parents=True)
+        if grower == "north-grower" and i == 2:
+            # Boundary-import stub: header only, no rows. Must be skipped, not crash.
+            (wdir / "daily_weather.csv").write_text(
+                "field_id,date,T2M,T2M_MAX,T2M_MIN,PRECTOTCORR\n", encoding="utf-8")
+            continue
         days = pd.date_range("2021-01-01", "2022-12-31", freq="D")
         warm = 2.0 if state == "MS" else 0.0
         seasonal = 12 * np.sin((days.dayofyear - 105) / 365 * 2 * np.pi)
@@ -126,6 +131,8 @@ def main() -> int:
             raise SmokeFailure(f"CDL majority table wrong (expect 11 = 12 minus one No Data gap): "
                                f"{len(dom)} rows, {set(dom['crop'])}")
         season = pd.read_csv(out / "tables" / "season_weather.csv")
+        if season["field_id"].nunique() != 5:
+            raise SmokeFailure(f"header-only weather stub must be skipped, got {season['field_id'].nunique()} fields")
         ms, mo = (season.groupby("grower")["gdd_f"].mean()[k] for k in ("MS", "MO"))
         if not ms > mo:
             raise SmokeFailure("warmer synthetic MS weather must give more GDD than MO")
