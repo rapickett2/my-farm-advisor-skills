@@ -30,7 +30,7 @@ Use this nested skill for field-scale elevation and terrain work in My Farm Advi
 ## Routing Notes
 
 - Invoke this skill when the request mentions DEM, elevation, slope, aspect, hillshade, curvature, terrain wetness, flow accumulation, depressions, relative elevation, erosion proxies, or DEM source provenance.
-- Use it for U.S. 3DEP, Illinois ILHMP/ISGS, NASADEM, Copernicus GLO-30, ALOS AW3D30, optional OpenTopography, and Open-Elevation research-only policy questions.
+- Use it for U.S. 3DEP, Illinois ILHMP/ISGS, Arkansas GIS Office 0.5 m lidar, NASADEM, Copernicus GLO-30, ALOS AW3D30, optional OpenTopography, and Open-Elevation research-only policy questions.
 - Keep execution clear: default farm orchestration runs real DEM terrain with live real-source controls, `--structure-test` remains no-DEM and no-download, and `--skip-dem-terrain` is only an explicit operator override.
 - Treat offline fixtures as direct CLI test-only synthetic smokes that require `--allow-synthetic-fixtures`; they are unreachable from default orchestration and are not real grower DEM evidence.
 - Generated farm and field reports do not integrate terrain metrics in this change.

@@ -152,7 +152,7 @@ The deterministic ranking policy is:
 6. Prefer direct no-auth root sources.
 7. Prefer smaller estimated downloads.
 
-For U.S. fields, source precedence is USGS TNM 3DEP 1m, then Illinois ILHMP/ISGS when the AOI intersects Illinois and that candidate is equal or better by resolution, recency, and surface type, then USGS 10m, USGS 30m, and optional OpenTopography only when explicitly configured. For global fields, precedence is registered national/regional provider, NASADEM, Copernicus GLO-30 DSM, ALOS AW3D30 DSM, then SRTM-compatible fallback.
+For Arkansas fields, the Arkansas GIS Office 0.5 m statewide lidar DEM (`arkansas_agio_dem`, public ArcGIS ImageServer export clipped per AOI) ranks first by resolution, with USGS 3DEP as the automatic fallback. For U.S. fields, source precedence is USGS TNM 3DEP 1m, then Illinois ILHMP/ISGS when the AOI intersects Illinois and that candidate is equal or better by resolution, recency, and surface type, then USGS 10m, USGS 30m, and optional OpenTopography only when explicitly configured. For global fields, precedence is registered national/regional provider, NASADEM, Copernicus GLO-30 DSM, ALOS AW3D30 DSM, then SRTM-compatible fallback.
 
 The resolver must not fail solely because only 30m coverage exists. It should still return the best raster candidate with a quality warning. If a DSM fallback wins, the selection must include a warning that elevations may include vegetation, buildings, or other above-ground objects and must not be represented as bare-earth DTM.
 

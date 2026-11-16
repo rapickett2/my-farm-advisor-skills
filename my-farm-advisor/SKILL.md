@@ -52,6 +52,8 @@ Open the subtree index that matches the request:
 - Use **Strategy** for maturity planning and crop-strategy decisions.
 - Use **Weather** for NASA POWER weather acquisition and downstream farm weather analysis.
 - Use **Admin** for geospatial administration and browser-based interactive map workflows.
+- Use **Grower Web Map** ([data-pipeline/grower-web-map/SKILL.md](data-pipeline/grower-web-map/SKILL.md))
+  for one interactive satellite-basemap HTML map per grower built from data-pipeline outputs.
 - Use **Data Pipeline** for real field-boundary polygons when setting up demo farms or new countries:
   US → USDA CSB hosted GeoParquet (pyarrow row-group-stat pruning, no whole-file download),
   AU/CA/EU → OSM `landuse=farmland` via Overpass. The repository contract every boundary source

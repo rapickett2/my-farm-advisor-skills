@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -154,10 +155,27 @@ class USGSTNMAdapter(SourceAdapter):
         return tuple(candidates)
 
     def download(self, candidate: SourceCandidate, cache: str | Path) -> Path:
-        """Download a selected direct GeoTIFF candidate into a runtime cache."""
+        """Download a selected direct GeoTIFF candidate into a runtime cache.
+
+        The runtime cache is keyed by field, but a 3DEP project tile covers many
+        fields: one Mississippi tile is 331 MB and took ~100 minutes to fetch,
+        then every field on it fetched the same bytes again. Reuse an identical
+        filename from a sibling field cache before touching the network.
+        """
 
         if not candidate.source_urls:
             raise ValueError("USGS TNM candidate has no source URL to download")
+        target = Path(cache) / _filename_from_url(candidate.source_urls[0])
+        if target.exists() and target.stat().st_size:
+            return target
+        shared = _shared_tile(target)
+        if shared is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.link(shared, target)
+            except OSError:
+                shutil.copy2(shared, target)
+            return target
         record = download_with_retries(
             candidate.source_urls[0],
             cache,
@@ -314,9 +332,11 @@ def download_with_retries(
     for attempt in range(1, attempts + 1):
         try:
             cache_path.mkdir(parents=True, exist_ok=True)
-            data = fetch_bytes(url) if fetch_bytes else _http_get_bytes(url, timeout_seconds)
-            with temp_path.open("wb") as handle:
-                handle.write(data)
+            if fetch_bytes is not None:
+                with temp_path.open("wb") as handle:
+                    handle.write(fetch_bytes(url))
+            else:
+                _http_stream_to_file(url, temp_path, timeout_seconds)
             os.replace(temp_path, target_path)
             return USGSTNMDownloadRecord(
                 path=str(target_path),
@@ -352,10 +372,30 @@ def _http_get_json(url: str, timeout_seconds: float) -> Any:
         return json.loads(response.read().decode("utf-8"))
 
 
-def _http_get_bytes(url: str, timeout_seconds: float) -> bytes:
+def _shared_tile(target: Path) -> Path | None:
+    """Return an identical tile already cached for a sibling field, if any."""
+
+    for sibling in sorted(target.parent.parent.glob(f"*/{target.name}")):
+        if sibling.is_file() and sibling.stat().st_size:
+            return sibling
+    return None
+
+
+def _http_stream_to_file(url: str, target: Path, timeout_seconds: float) -> None:
+    """Stream a URL to ``target`` without holding the whole tile in memory.
+
+    A 3DEP 1 m project tile is several hundred MB, so the old
+    ``response.read()`` approach needed the full file in RAM and gave no
+    progress. Chunks are copied straight to disk and the byte count is checked
+    against Content-Length when the server provides one.
+    """
+
     request = Request(url, headers={"User-Agent": "my-farm-advisor-dem-terrain/0.1"})
-    with urlopen(request, timeout=timeout_seconds) as response:
-        return response.read()
+    with urlopen(request, timeout=timeout_seconds) as response, target.open("wb") as handle:
+        expected = response.headers.get("Content-Length")
+        shutil.copyfileobj(response, handle, length=1024 * 1024)
+    if expected and expected.isdigit() and target.stat().st_size != int(expected):
+        raise IOError(f"short download {url}: {target.stat().st_size}/{expected} bytes")
 
 
 def _iter_product_records(payload: Any) -> Iterable[dict[str, Any]]:

@@ -220,6 +220,7 @@ def main() -> None:
             "global",
             "usgs-tnm",
             "illinois",
+            "arkansas",
             "nasadem",
             "copernicus-glo30",
             "alos-aw3d30",
