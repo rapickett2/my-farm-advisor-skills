@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Offline smoke test for the field-eda runner and report builder.
+
+Builds a synthetic runtime tree, runs ``run_field_eda.py`` (figures, tables,
+findings), then ``report/build_report.py`` (the one-time HTML artifact) and
+checks both.
+
+Run with the data-pipeline runtime venv (needs geopandas, rasterio, rasterstats,
+scipy, matplotlib):
+
+    "${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python" \\
+        my-farm-advisor/eda/field-eda/src/smoke_field_eda.py
+
+No network: the map is drawn without basemap tiles.
+"""
+
+from __future__ import annotations
+
+import csv
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import rasterio
+from rasterio.transform import from_origin
+from shapely.geometry import box, mapping
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+
+class SmokeFailure(AssertionError):
+    pass
+
+
+UNITS = [
+    # grower, farm, state, fips, county, prefix, origin lon, origin lat
+    ("north-grower", "north-farm", "MO", "29", "Pemiscot", "NO", -89.86, 36.02),
+    ("south-grower", "south-farm", "MS", "28", "Coahoma", "SO", -90.56, 34.36),
+]
+
+
+def _write_unit(base: Path, unit, sizes: list[float]) -> None:
+    grower, farm, state, fips, county, prefix, lon0, lat0 = unit
+    root = base / "growers" / grower / "farms" / farm
+    (root / "boundary").mkdir(parents=True)
+    (root / "manifests").mkdir(parents=True)
+    features, inv = [], []
+    for i, size in enumerate(sizes, 1):
+        fid = f"{farm}-{prefix.lower()}-{i:02d}"
+        geom = box(lon0 + i * 0.012, lat0, lon0 + i * 0.012 + size, lat0 + 0.006)
+        features.append({"type": "Feature", "geometry": mapping(geom), "properties": {
+            "field_id": fid, "field_name": f"{prefix} {i:02d}", "state": state, "state_fips": fips,
+            "county_name": county}})
+        inv.append((fid, fid))
+        wdir = root / "fields" / fid / "weather"
+        wdir.mkdir(parents=True)
+        if grower == "north-grower" and i == 2:
+            # Boundary-import stub: header only, no rows. Must be skipped, not crash.
+            (wdir / "daily_weather.csv").write_text(
+                "field_id,date,T2M,T2M_MAX,T2M_MIN,PRECTOTCORR\n", encoding="utf-8")
+            continue
+        days = pd.date_range("2021-01-01", "2022-12-31", freq="D")
+        warm = 2.0 if state == "MS" else 0.0
+        seasonal = 12 * np.sin((days.dayofyear - 105) / 365 * 2 * np.pi)
+        pd.DataFrame({
+            "field_id": fid, "lat": lat0, "lon": lon0, "date": days.strftime("%Y-%m-%d"),
+            "T2M": 16 + warm + seasonal, "T2M_MAX": 22 + warm + seasonal, "T2M_MIN": 10 + warm + seasonal,
+            "PRECTOTCORR": 3.5, "ALLSKY_SFC_SW_DWN": 18, "RH2M": 70, "WS10M": 3,
+        }).to_csv(wdir / "daily_weather.csv", index=False)
+    (root / "boundary" / "field_boundaries.geojson").write_text(
+        json.dumps({"type": "FeatureCollection", "features": features}), encoding="utf-8")
+    with (root / "manifests" / "field-inventory.csv").open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["field_id", "field_slug"])
+        w.writerows(inv)
+    with (root / "manifests" / "field-attributes.csv").open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["field_id", "irrigation", "irrigation_source"])
+        w.writerow([inv[0][0], "pivot", "user_confirmed"])
+
+
+def _write_cdl(base: Path) -> None:
+    """One EPSG:4326 raster per year/state: west half Corn (1), east half Soybeans (5)."""
+    rasters = base / "shared" / "cdl" / "rasters"
+    rasters.mkdir(parents=True)
+    for _, _, _, fips, _, _, lon0, lat0 in UNITS:
+        res = 0.0003
+        width, height = 200, 40
+        for year in (2021, 2022):
+            arr = np.full((height, width), 1, dtype=np.uint8)
+            arr[:, width // 2 + (year % 2) * 10:] = 5
+            if fips == "28" and year == 2022:
+                arr[:, 36:62] = 0  # first south field is all "No Data": a gap in the rotation grid
+            profile = {"driver": "GTiff", "width": width, "height": height, "count": 1, "dtype": "uint8",
+                       "crs": "EPSG:4326", "transform": from_origin(lon0, lat0 + 0.01, res, res)}
+            with rasterio.open(rasters / f"CDL_{year}_{fips}.tif", "w", **profile) as dst:
+                dst.write(arr, 1)
+
+
+def main() -> int:
+    with tempfile.TemporaryDirectory(prefix="field-eda-smoke-") as tmp:
+        root = Path(tmp)
+        base = root / "data-pipeline"
+        _write_unit(base, UNITS[0], [0.004, 0.006, 0.009])
+        _write_unit(base, UNITS[1], [0.005, 0.007, 0.010])
+        _write_cdl(base)
+        os.environ["DATA_PIPELINE_DATA_ROOT"] = str(root)
+
+        import run_field_eda
+
+        out, pub = root / "out", root / "publish"
+        rc = run_field_eda.main([
+            "--unit", "north-grower:north-farm", "--unit", "south-grower:south-farm",
+            "--cdl-years", "2021-2022", "--weather-years", "2021-2022",
+            "--out-dir", str(out), "--no-basemap",
+        ])
+        if rc != 0:
+            raise SmokeFailure(f"run_field_eda returned {rc}")
+        if (out / "field_eda_report.html").exists():
+            raise SmokeFailure("the reusable runner must not build the report; that is build_report.py's job")
+
+        figures = sorted(p.name for p in (out / "figures").iterdir() if p.suffix in {".png", ".jpg"})
+        if len(figures) != 10:
+            raise SmokeFailure(f"expected 10 figures (3 categories x 3 + map), got {figures}")
+        print("PASS: 10 static figures (2 views + 1 comparison per category, plus map)")
+
+        fields = pd.read_csv(out / "tables" / "fields.csv")
+        if len(fields) != 6 or fields["pivot"].sum() != 2 or set(fields["grower"]) != {"MO", "MS"}:
+            raise SmokeFailure(f"fields table wrong:\n{fields[['grower', 'field_name', 'pivot']]}")
+        dom = pd.read_csv(out / "tables" / "cdl_majority_crop.csv")
+        if len(dom) != 11 or not set(dom["crop"]) <= {"Corn", "Soybeans"}:
+            raise SmokeFailure(f"CDL majority table wrong (expect 11 = 12 minus one No Data gap): "
+                               f"{len(dom)} rows, {set(dom['crop'])}")
+        season = pd.read_csv(out / "tables" / "season_weather.csv")
+        if season["field_id"].nunique() != 5:
+            raise SmokeFailure(f"header-only weather stub must be skipped, got {season['field_id'].nunique()} fields")
+        ms, mo = (season.groupby("grower")["gdd_f"].mean()[k] for k in ("MS", "MO"))
+        if not ms > mo:
+            raise SmokeFailure("warmer synthetic MS weather must give more GDD than MO")
+        print("PASS: tables — fields, pivots from field-attributes.csv, CDL majority, season GDD")
+
+        findings_path = out / "tables" / "findings.json"
+        payload = json.loads(findings_path.read_text(encoding="utf-8"))
+        if set(payload.get("findings", {})) != {"boundaries", "weather", "cdl"} or not payload.get("units"):
+            raise SmokeFailure(f"findings.json must carry three categories and unit summaries: {payload}")
+        print("PASS: findings.json artifact — three categories plus grower summaries")
+
+        sys.path.insert(0, str(HERE.parent / "report"))
+        import build_report
+
+        rc = build_report.main(["--artifacts", str(out), "--publish-dir", str(pub)])
+        if rc != 0:
+            raise SmokeFailure(f"build_report returned {rc}")
+
+        page = (out / "field_eda_report.html").read_text(encoding="utf-8")
+        import re
+
+        text = re.sub(r"data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+", "", page)
+        if page.count("<img ") != 10 or re.search(r"\bnan\b", text, re.I) or "<script" in text.lower():
+            raise SmokeFailure("report must embed 10 images, contain no NaN text and no scripts")
+        if page.count("<figcaption>") != 10:
+            raise SmokeFailure("every figure needs a caption explaining what it shows")
+        for level in ("field-year", "across-grower", "geospatial"):
+            if level not in text:
+                raise SmokeFailure(f"report must label the {level} comparison level")
+        if "not required" not in text.lower():
+            raise SmokeFailure("report must state that soil analysis is not required and out of scope")
+        if (out / "field_eda_report.html").stat().st_size > 1_000_000:
+            raise SmokeFailure("report exceeds the 1 MB committed-asset limit")
+        published = [p for p in (pub / "figures").iterdir() if p.suffix in {".png", ".jpg"}]
+        if not (pub / "field_eda_report.html").exists() or len(published) != 10:
+            raise SmokeFailure("--publish-dir did not copy the report and figures")
+        print("PASS: one-time HTML report — 10 captioned figures, level labels, soil scope, under 1 MB")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

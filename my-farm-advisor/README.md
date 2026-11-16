@@ -281,6 +281,17 @@ The umbrella entrypoint is [`SKILL.md`](SKILL.md). From there, the skill routes 
 | Strategy         | Crop strategy and maturity planning workflows                          | [`strategy/INDEX.md`](strategy/INDEX.md)                 |
 | Weather          | NASA POWER weather ingestion and downstream weather analysis           | [`weather/INDEX.md`](weather/INDEX.md)                   |
 
+### Field-level EDA (`eda/field-eda`)
+
+[`eda/field-eda`](eda/field-eda/GUIDE.md) is the static field-level EDA subskill. Given completed
+pipeline runs, it compares field boundaries, NASA POWER weather, and USDA CDL cropland at field,
+field-year, grower, and across-grower levels, and writes PNG figures, CSV tables, and a
+`findings.json` summary. Report assembly is a separate one-time step (`report/build_report.py`), which
+builds the self-contained page committed at
+[`eda/field-eda/report/field_eda_report.html`](eda/field-eda/report/field_eda_report.html). Start with
+the [guide](eda/field-eda/GUIDE.md); the workflow is document-routed under this skill, not a
+standalone runtime skill.
+
 ## Typical Workflow
 
 ```mermaid

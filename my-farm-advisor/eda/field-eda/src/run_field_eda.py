@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""Field-level EDA across grower units: boundaries, weather, CDL, and a map.
+
+Reads data-pipeline runtime outputs only and writes static artifacts: PNG/JPEG
+figures, CSV tables, and ``findings.json`` (plain-language results computed from
+the tables) under ``${DATA_PIPELINE_DATA_ROOT}/data-pipeline/eda/field-eda/``
+(or ``--out-dir``).
+
+This runner is the reusable part. It does not build the report: the one-page
+HTML artifact is assembled separately, from these outputs, by
+``report/build_report.py``.
+
+Example:
+    python run_field_eda.py \\
+        --unit wrightland-brothers:wrightland --unit steele-cooter-farms:holland \\
+        --unit coahoma:coahoma --cdl-years 2019-2025 --weather-years 2021-2025
+    python report/build_report.py --publish-dir my-farm-advisor/eda/field-eda/report
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import date
+from pathlib import Path
+
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import field_eda_data as data  # noqa: E402
+import field_eda_plots as plots  # noqa: E402
+
+
+def _years(text: str) -> list[int]:
+    start, _, end = text.partition("-")
+    return list(range(int(start), int(end or start) + 1))
+
+
+def _states(base: Path, fips: set[str]) -> gpd.GeoDataFrame | None:
+    folder = base / "shared" / "geoadmin" / "l2_counties"
+    parquet, geojson = folder / "counties_usa.parquet", folder / "counties_usa.geojson"
+    if parquet.exists():  # same data, ~10x faster to read than the 220 MB GeoJSON
+        counties = gpd.read_parquet(parquet)
+    elif geojson.exists():
+        counties = gpd.read_file(geojson)
+    else:
+        return None
+    counties["state_fips"] = counties["state_fips"].astype(str).str.zfill(2)
+    # Draw the target states plus their neighbours inside the locator window.
+    states = counties.dissolve(by="state_fips", as_index=False)[["state_fips", "geometry"]]
+    abbr = {"01": "AL", "05": "AR", "17": "IL", "18": "IN", "19": "IA", "20": "KS", "21": "KY",
+            "22": "LA", "28": "MS", "29": "MO", "40": "OK", "47": "TN", "48": "TX"}
+    states["state_abbr"] = states["state_fips"].map(abbr).fillna("")
+    return states[states["state_abbr"] != ""]
+
+
+def _pct(x: float) -> str:
+    return f"{x:.0%}"
+
+
+def build_findings(fields, bsum, wsum, spread, mix, dom) -> dict[str, list[str]]:
+    """Plain-language findings computed from the summary tables."""
+    out: dict[str, list[str]] = {"boundaries": [], "weather": [], "cdl": []}
+    med = bsum["median_acres"].sort_values()
+    p = bsum.attrs.get("kruskal_p", {})
+    per = bsum["fields"]
+    n_text = f"{per.iloc[0]} fields per grower" if per.nunique() == 1 else f"{per.min()}–{per.max()} fields per grower"
+    out["boundaries"].append(
+        f"Median field size runs from {med.iloc[0]:.0f} ac ({med.index[0]}) to {med.iloc[-1]:.0f} ac "
+        f"({med.index[-1]}); across all {len(fields)} fields it spans "
+        f"{fields['acres'].min():.1f}–{fields['acres'].max():.1f} ac. Kruskal–Wallis p = "
+        f"{p.get('acres', np.nan):.3f}, so with {n_text} the size difference "
+        f"{'is' if p.get('acres', 1) < 0.05 else 'is not'} statistically clear."
+    )
+    rect = bsum["median_rectangularity"].sort_values()
+    out["boundaries"].append(
+        f"{rect.index[-1]} fields are the most regular (median rectangularity {rect.iloc[-1]:.2f}) and "
+        f"{rect.index[0]} the least ({rect.iloc[0]:.2f}; p = {p.get('rectangularity', np.nan):.3f}). "
+        f"Small fields carry the most boundary per acre, i.e. the most headland and turn-row."
+    )
+    piv = ", ".join(f"{g} {r.pivots:.0f} ({_pct(r.pivot_share)} of acres)" for g, r in bsum.iterrows())
+    out["boundaries"].append(f"Center pivots (grower-confirmed): {piv}.")
+
+    gdd = wsum[("gdd_f", "mean")].sort_values()
+    rain = wsum[("precip_in", "mean")].sort_values()
+    hot = wsum[("hot_days", "mean")].sort_values()
+    centers = fields.groupby("grower")[["lat", "lon"]].mean()
+    lo, hi = centers.loc[gdd.index[0]], centers.loc[gdd.index[-1]]
+    km = 6371 * np.arccos(
+        np.clip(
+            np.sin(np.radians(lo.lat)) * np.sin(np.radians(hi.lat))
+            + np.cos(np.radians(lo.lat)) * np.cos(np.radians(hi.lat)) * np.cos(np.radians(hi.lon - lo.lon)),
+            -1, 1,
+        )
+    )
+    out["weather"].append(
+        f"Apr–Sep GDD averages {gdd.iloc[0]:,.0f} °F ({gdd.index[0]}, {lo.lat:.2f}°N) to "
+        f"{gdd.iloc[-1]:,.0f} °F ({gdd.index[-1]}, {hi.lat:.2f}°N): a {gdd.iloc[-1] - gdd.iloc[0]:,.0f} "
+        f"°F-day gap between farms {km:.0f} km apart."
+    )
+    year_swing = (wsum[("precip_in", "max")] - wsum[("precip_in", "min")]).median()
+    between = rain.iloc[-1] - rain.iloc[0]
+    out["weather"].append(
+        f"Season rainfall averages {rain.iloc[0]:.1f} in ({rain.index[0]}) to {rain.iloc[-1]:.1f} in "
+        f"({rain.index[-1]}); days ≥ 95 °F average {hot.iloc[0]:.0f} ({hot.index[0]}) to "
+        f"{hot.iloc[-1]:.0f} ({hot.index[-1]}). Rainfall swings {year_swing:.1f} in between a grower's "
+        f"wettest and driest season, "
+        + ("more than" if year_swing > between else "less than")
+        + f" the {between:.1f} in gap between growers."
+    )
+    max_spread = spread["gdd_f_field_range"].max()
+    if max_spread < 25:
+        out["weather"].append(
+            f"Within each farm, fields differ by at most {max_spread:.0f} GDD in any season: NASA POWER "
+            f"meteorology is a 0.5° × 0.625° grid, so a farm's fields share one or two cells. Weather "
+            f"here compares growers, not fields within a farm."
+        )
+    else:
+        out["weather"].append(
+            f"Within-farm field spread reaches {max_spread:.0f} GDD in a season, so some farms straddle "
+            f"NASA POWER grid cells; compare that with the gap between growers before reading it as "
+            f"real field-to-field climate."
+        )
+
+    dominant = mix.drop(columns="rotation_rate").idxmax(axis=1)
+    share = mix.drop(columns="rotation_rate").max(axis=1)
+    out["cdl"].append(
+        "Acre-weighted crop mix, all years: "
+        + "; ".join(f"{g} mostly {dominant[g]} ({_pct(share[g])})" for g in mix.index)
+        + "."
+    )
+    rot = mix["rotation_rate"].sort_values()
+    out["cdl"].append(
+        f"The crop changes from the previous year on {_pct(rot.iloc[0])} of acres per year at "
+        f"{rot.index[0]} versus {_pct(rot.iloc[-1])} at {rot.index[-1]}."
+    )
+    low = dom.groupby("field_name")["crop_pct"].median().sort_values()
+    per_field = dom.groupby(["field_name", "acres"])["crop_pct"].median().reset_index()
+    rho, p = stats.spearmanr(per_field["acres"], per_field["crop_pct"])
+    size_note = (
+        "purity does not track field size" if not np.isfinite(p) or p >= 0.05
+        else "smaller fields carry more mixed labels"
+    )
+    out["cdl"].append(
+        f"The majority crop covers a median {dom['crop_pct'].median():.0f}% of a field-year. Lowest: "
+        + ", ".join(f"{n} ({v:.0f}%)" for n, v in low.head(3).items())
+        + f". Across fields {size_note} (Spearman ρ = {rho:.2f}, p = {p:.3f}), so mixed labels come "
+        "from split or double-cropped fields rather than from small fields alone."
+    )
+    return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--unit", action="append", required=True, help="<grower-slug>:<farm-slug> (repeatable)")
+    parser.add_argument("--cdl-years", default="2019-2025")
+    parser.add_argument("--weather-years", default="2021-2025")
+    parser.add_argument("--out-dir", default=None, help="Default: <runtime>/data-pipeline/eda/field-eda")
+    parser.add_argument("--no-basemap", action="store_true", help="Skip online imagery tiles on the map")
+    args = parser.parse_args(argv)
+
+    base = data.pipeline_root()
+    out = Path(args.out_dir) if args.out_dir else base / "eda" / "field-eda"
+    fig_dir, tab_dir = out / "figures", out / "tables"
+    units = [data.FarmUnit.parse(u) for u in args.unit]
+    cdl_years, weather_years = _years(args.cdl_years), _years(args.weather_years)
+
+    print("Loading fields …")
+    fields = data.load_fields(base, units)
+    print(f"  {len(fields)} fields, {fields['acres'].sum():,.1f} ac, growers: {sorted(fields['grower'].unique())}")
+    print("Loading weather …")
+    weather = data.load_weather(base, fields, weather_years[0], weather_years[-1])
+    print(f"  {len(weather):,} daily rows")
+    print("Computing CDL composition …")
+    cdl = data.load_cdl(base, fields, cdl_years)
+    dom = data.dominant_crops(cdl)
+    print(f"  {len(dom)} field-years")
+    if weather.empty or dom.empty:
+        print("ERROR: weather or CDL inputs missing; run the data pipeline first")
+        return 1
+    season = data.season_weather(weather)
+    spread = data.within_unit_spread(season, "gdd_f")
+
+    figs = {
+        "boundaries_size": plots.boundaries_size(fields, fig_dir / "01_boundaries_size.png"),
+        "boundaries_shape": plots.boundaries_shape(fields, fig_dir / "02_boundaries_shape.png"),
+        "weather_monthly": plots.weather_monthly(weather, fig_dir / "04_weather_monthly.png"),
+        "weather_gdd": plots.weather_gdd(weather, fig_dir / "05_weather_gdd.png"),
+        "cdl_sequence": plots.cdl_sequence(dom, fields, fig_dir / "07_cdl_sequence.png"),
+        "cdl_purity": plots.cdl_purity(dom, fig_dir / "08_cdl_purity.png"),
+    }
+    figs["boundaries_compare"], bsum = plots.boundaries_compare(fields, fig_dir / "03_boundaries_compare.png")
+    figs["weather_compare"], wsum = plots.weather_compare(season, fig_dir / "06_weather_compare.png")
+    figs["cdl_compare"], mix = plots.cdl_compare(dom, fig_dir / "09_cdl_compare.png")
+    states = _states(base, set(fields["state_fips"].astype(str)))
+    figs["map"] = plots.field_map(fields, dom, states, fig_dir / "10_field_map.jpg", basemap=not args.no_basemap)
+
+    tab_dir.mkdir(parents=True, exist_ok=True)
+    fields.drop(columns="geometry").to_csv(tab_dir / "fields.csv", index=False)
+    season.to_csv(tab_dir / "season_weather.csv", index=False)
+    dom.to_csv(tab_dir / "cdl_majority_crop.csv", index=False)
+    cdl.to_csv(tab_dir / "cdl_composition.csv", index=False)
+    bsum.to_csv(tab_dir / "summary_boundaries.csv")
+    wsum.to_csv(tab_dir / "summary_weather.csv")
+    mix.to_csv(tab_dir / "summary_cdl.csv")
+    spread.to_csv(tab_dir / "weather_within_farm_spread.csv", index=False)
+
+    missing = sorted(set(cdl_years) - set(dom["year"]))
+    findings = build_findings(fields, bsum, wsum, spread, mix, dom)
+    payload = {
+        "generated": date.today().isoformat(),
+        "years": {"cdl": cdl_years, "weather": weather_years},
+        "coverage_note": f"CDL years without rasters: {missing}." if missing else "",
+        "units": [
+            {"grower": g, "place": r.place, "fields": int(r.n), "acres": float(r.ac), "pivots": int(r.piv)}
+            for g, r in fields.groupby("grower")
+            .agg(place=("place", "first"), n=("field_id", "size"), ac=("acres", "sum"), piv=("pivot", "sum"))
+            .iterrows()
+        ],
+        "findings": findings,
+    }
+    (tab_dir / "findings.json").write_text(json.dumps(payload, indent=1), encoding="utf-8")
+
+    print(f"\nArtifacts: {out}")
+    print(f"  {len(figs)} figures in {fig_dir}")
+    print(f"  tables + findings.json in {tab_dir}")
+    for key, lines in findings.items():
+        print(f"\n[{key}]")
+        for line in lines:
+            print(f"  - {line}")
+    print("\nNext: python report/build_report.py   (assembles the one-page HTML artifact)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
