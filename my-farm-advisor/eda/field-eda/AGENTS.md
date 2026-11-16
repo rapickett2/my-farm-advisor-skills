@@ -2,8 +2,9 @@
 
 ## Purpose
 
-This folder owns the field-level EDA workflow: `src/` (data loading, static figures, report CLI, smoke
-test), `GUIDE.md`, `README.md`, and the committed `report/`.
+This folder owns the field-level EDA workflow: `src/` (data loading, static figures, artifact CLI, smoke
+test), `report/build_report.py` (the one-time report assembler), `GUIDE.md`, `README.md`, and the
+committed `report/`.
 
 ## Safe edit scope
 
@@ -20,8 +21,11 @@ Read `GUIDE.md` first, then `README.md`. For runtime paths and pipeline commands
 
 - Read only data-pipeline runtime outputs under `${DATA_PIPELINE_DATA_ROOT}/data-pipeline`; never read
   grower source exports directly.
-- Static output only: PNG, CSV, and one self-contained HTML page with no scripts. No interactive
-  maps, dashboards, or web apps.
+- Static output only: PNG, CSV, `findings.json`, and one self-contained HTML page with no scripts. No
+  interactive maps, dashboards, or web apps.
+- Keep the two steps separate: `src/run_field_eda.py` produces artifacts and must not write the report;
+  `report/build_report.py` assembles the page from those artifacts. Do not fold report generation back
+  into the reusable runner.
 - Soil is out of scope for this workflow.
 - Every number or claim in the report must be computed from the tables. Do not hard-code findings,
   distances, or place descriptions.

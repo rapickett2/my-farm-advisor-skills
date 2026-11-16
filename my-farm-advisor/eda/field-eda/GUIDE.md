@@ -20,8 +20,21 @@ categories, each with two field-level views and one grower comparison, plus one 
 | Cropland (USDA CDL) | Majority crop per field per year (rotation grid) | Majority-crop share vs field size | Acre-weighted crop mix by year + rotation rate |
 | Map | Each grower's fields on imagery coloured by the latest crop, pivots dashed, locator panel | | |
 
-Output is static only: PNG figures, CSV tables, and one self-contained HTML page (images embedded,
-no scripts). Findings in the report are computed from the tables, not typed in.
+Output is static only: PNG figures, CSV tables, and `findings.json` from the reusable runner. The
+one-page HTML report is a separate, one-time step (`report/build_report.py`): images embedded, no
+scripts, and every finding computed from the tables rather than typed in.
+
+## Two-step design
+
+The reusable part and the artifact are kept apart on purpose:
+
+| Step | Script | Produces |
+|---|---|---|
+| 1. EDA artifacts (reusable) | `src/run_field_eda.py` | `figures/`, `tables/`, `tables/findings.json` |
+| 2. Report (one-time) | `report/build_report.py` | `field_eda_report.html`, optional committable copy |
+
+Report generation is deliberately outside the reusable runner, so the runner stays a plain artifact
+producer and the page can be re-assembled without re-running the analysis.
 
 ## When to use
 
@@ -48,23 +61,29 @@ Out of scope by design: soil (see `../../soil/`), interactive maps or dashboards
 ```bash
 export DATA_PIPELINE_DATA_ROOT=/absolute/path/to/my-farm-advisor-runtime
 PY="${DATA_PIPELINE_DATA_ROOT}/data-pipeline/.venv/bin/python"
+
+# 1. artifacts: figures, tables, findings.json
 "$PY" my-farm-advisor/eda/field-eda/src/run_field_eda.py \
   --unit wrightland-brothers:wrightland \
   --unit steele-cooter-farms:holland \
   --unit coahoma:coahoma \
   --cdl-years 2019-2025 --weather-years 2021-2025
+
+# 2. one-time report artifact (optional --publish-dir copies it somewhere committable)
+"$PY" my-farm-advisor/eda/field-eda/report/build_report.py \
+  --publish-dir my-farm-advisor/eda/field-eda/report
 ```
 
-Outputs go to `${DATA_PIPELINE_DATA_ROOT}/data-pipeline/eda/field-eda/`:
+Artifacts go to `${DATA_PIPELINE_DATA_ROOT}/data-pipeline/eda/field-eda/`:
 
 ```
-field_eda_report.html        one page, figures embedded
 figures/01_…09_*.png         static figures (10_field_map.jpg: imagery map, JPEG to stay small)
 tables/*.csv                 fields, season weather, CDL composition and majority crop, summaries
+tables/findings.json         plain-language findings + grower summaries, computed from the tables
+field_eda_report.html        one page, figures embedded — written by report/build_report.py
 ```
 
-Add `--publish-dir <dir>` to copy the report and figures somewhere committable, and
-`--no-basemap` to draw the map without online imagery tiles.
+`--no-basemap` on the runner draws the map without online imagery tiles.
 
 ## Method notes
 
@@ -82,6 +101,6 @@ Add `--publish-dir <dir>` to copy the report and figures somewhere committable, 
 ## Validation
 
 ```bash
-"$PY" my-farm-advisor/eda/field-eda/src/smoke_field_eda.py   # offline, synthetic runtime
+"$PY" my-farm-advisor/eda/field-eda/src/smoke_field_eda.py   # offline, synthetic runtime, both steps
 ./scripts/validate.sh                                          # repo root
 ```

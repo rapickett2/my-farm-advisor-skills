@@ -23,15 +23,24 @@ Start with [`GUIDE.md`](GUIDE.md) for the workflow and command; agents also read
 | 9 | Crop mix by year and rotation rate per grower | Cropland | grower comparison |
 | 10 | Fields on imagery coloured by latest crop, pivots dashed, locator (JPEG) | Geospatial | map |
 
-Plus CSV tables (fields, season weather, CDL composition, summaries) and `field_eda_report.html`, a
-single self-contained page with every figure embedded and findings computed from the tables.
+Plus CSV tables (fields, season weather, CDL composition, summaries) and `tables/findings.json`, which
+carries the plain-language findings computed from those tables. The one-page HTML report is assembled
+separately by [`report/build_report.py`](report/build_report.py) — report generation is deliberately
+kept outside the reusable runner, so the page can be rebuilt without re-running the analysis.
 
 ## Committed report
 
 [`report/field_eda_report.html`](report/field_eda_report.html) is the run for the three Mid-South
 growers (30 grower-drawn fields in Lee Co. AR, Pemiscot Co. MO, and Coahoma Co. MS; CDL 2019–2025;
 NASA POWER 2021–2025). The same figures are in [`report/figures/`](report/figures/) so they display
-on GitHub. Download the HTML and open it in a browser to read the page.
+on GitHub.
+
+GitHub shows HTML as source, so use the preview link to read the page in a browser:
+
+<https://htmlpreview.github.io/?https://github.com/rapickett2/my-farm-advisor-skills/blob/assignment-2/my-farm-advisor/eda/field-eda/report/field_eda_report.html>
+
+Or download the file and open it locally — it is self-contained, with every figure embedded and no
+external requests.
 
 ## Scope
 

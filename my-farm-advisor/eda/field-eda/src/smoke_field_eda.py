@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Offline smoke test for run_field_eda.py on a synthetic runtime tree.
+"""Offline smoke test for the field-eda runner and report builder.
+
+Builds a synthetic runtime tree, runs ``run_field_eda.py`` (figures, tables,
+findings), then ``report/build_report.py`` (the one-time HTML artifact) and
+checks both.
 
 Run with the data-pipeline runtime venv (needs geopandas, rasterio, rasterstats,
 scipy, matplotlib):
@@ -113,10 +117,12 @@ def main() -> int:
         rc = run_field_eda.main([
             "--unit", "north-grower:north-farm", "--unit", "south-grower:south-farm",
             "--cdl-years", "2021-2022", "--weather-years", "2021-2022",
-            "--out-dir", str(out), "--publish-dir", str(pub), "--no-basemap",
+            "--out-dir", str(out), "--no-basemap",
         ])
         if rc != 0:
             raise SmokeFailure(f"run_field_eda returned {rc}")
+        if (out / "field_eda_report.html").exists():
+            raise SmokeFailure("the reusable runner must not build the report; that is build_report.py's job")
 
         figures = sorted(p.name for p in (out / "figures").iterdir() if p.suffix in {".png", ".jpg"})
         if len(figures) != 10:
@@ -138,18 +144,38 @@ def main() -> int:
             raise SmokeFailure("warmer synthetic MS weather must give more GDD than MO")
         print("PASS: tables — fields, pivots from field-attributes.csv, CDL majority, season GDD")
 
+        findings_path = out / "tables" / "findings.json"
+        payload = json.loads(findings_path.read_text(encoding="utf-8"))
+        if set(payload.get("findings", {})) != {"boundaries", "weather", "cdl"} or not payload.get("units"):
+            raise SmokeFailure(f"findings.json must carry three categories and unit summaries: {payload}")
+        print("PASS: findings.json artifact — three categories plus grower summaries")
+
+        sys.path.insert(0, str(HERE.parent / "report"))
+        import build_report
+
+        rc = build_report.main(["--artifacts", str(out), "--publish-dir", str(pub)])
+        if rc != 0:
+            raise SmokeFailure(f"build_report returned {rc}")
+
         page = (out / "field_eda_report.html").read_text(encoding="utf-8")
         import re
 
         text = re.sub(r"data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+", "", page)
         if page.count("<img ") != 10 or re.search(r"\bnan\b", text, re.I) or "<script" in text.lower():
             raise SmokeFailure("report must embed 10 images, contain no NaN text and no scripts")
+        if page.count("<figcaption>") != 10:
+            raise SmokeFailure("every figure needs a caption explaining what it shows")
+        for level in ("field-year", "across-grower", "geospatial"):
+            if level not in text:
+                raise SmokeFailure(f"report must label the {level} comparison level")
+        if "not required" not in text.lower():
+            raise SmokeFailure("report must state that soil analysis is not required and out of scope")
         if (out / "field_eda_report.html").stat().st_size > 1_000_000:
             raise SmokeFailure("report exceeds the 1 MB committed-asset limit")
         published = [p for p in (pub / "figures").iterdir() if p.suffix in {".png", ".jpg"}]
         if not (pub / "field_eda_report.html").exists() or len(published) != 10:
             raise SmokeFailure("--publish-dir did not copy the report and figures")
-        print("PASS: single self-contained static HTML report under 1 MB, published copy")
+        print("PASS: one-time HTML report — 10 captioned figures, level labels, soil scope, under 1 MB")
     return 0
 
 

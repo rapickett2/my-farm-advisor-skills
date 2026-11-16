@@ -1,24 +1,26 @@
 #!/usr/bin/env python3
 """Field-level EDA across grower units: boundaries, weather, CDL, and a map.
 
-Reads data-pipeline runtime outputs only, writes static PNG figures, CSV
-tables, and one self-contained single-page HTML report under
-``${DATA_PIPELINE_DATA_ROOT}/data-pipeline/eda/field-eda/`` (or ``--out-dir``).
-``--publish-dir`` additionally copies the report and figures somewhere small
-enough to commit (see README).
+Reads data-pipeline runtime outputs only and writes static artifacts: PNG/JPEG
+figures, CSV tables, and ``findings.json`` (plain-language results computed from
+the tables) under ``${DATA_PIPELINE_DATA_ROOT}/data-pipeline/eda/field-eda/``
+(or ``--out-dir``).
+
+This runner is the reusable part. It does not build the report: the one-page
+HTML artifact is assembled separately, from these outputs, by
+``report/build_report.py``.
 
 Example:
     python run_field_eda.py \\
         --unit wrightland-brothers:wrightland --unit steele-cooter-farms:holland \\
         --unit coahoma:coahoma --cdl-years 2019-2025 --weather-years 2021-2025
+    python report/build_report.py --publish-dir my-farm-advisor/eda/field-eda/report
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
-import html
-import shutil
+import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -59,11 +61,6 @@ def _states(base: Path, fips: set[str]) -> gpd.GeoDataFrame | None:
 
 def _pct(x: float) -> str:
     return f"{x:.0%}"
-
-
-def _img(path: Path) -> str:
-    mime = "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
-    return f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
 
 
 def build_findings(fields, bsum, wsum, spread, mix, dom) -> dict[str, list[str]]:
@@ -158,81 +155,12 @@ def build_findings(fields, bsum, wsum, spread, mix, dom) -> dict[str, list[str]]
     return out
 
 
-def write_report(path: Path, figs: dict[str, Path], fields, findings, years, coverage_note) -> Path:
-    counts = fields.groupby("grower")["field_id"].size()
-    n_note = (f"{counts.iloc[0]} fields per grower" if counts.nunique() == 1
-              else f"{counts.min()}–{counts.max()} fields per grower")
-    units = (
-        fields.groupby("grower")
-        .agg(place=("place", "first"), n=("field_id", "size"), ac=("acres", "sum"), piv=("pivot", "sum"))
-        .reset_index()
-    )
-    rows = "".join(
-        f"<tr><td><b>{html.escape(r.grower)}</b></td><td>{html.escape(r.place)}</td><td>{r.n}</td>"
-        f"<td>{r.ac:,.1f}</td><td>{r.piv}</td></tr>"
-        for r in units.itertuples()
-    )
-
-    def section(title: str, key: str, names: list[str]) -> str:
-        imgs = "".join(
-            f'<figure><img src="{_img(figs[n])}" alt="{html.escape(n)}"></figure>' for n in names
-        )
-        bullets = "".join(f"<li>{html.escape(t)}</li>" for t in findings[key])
-        return f'<section><h2>{title}</h2><div class="figs">{imgs}</div><ul>{bullets}</ul></section>'
-
-    page = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<title>Field-level EDA — {len(fields)} fields, {fields['grower'].nunique()} growers</title>
-<style>
- body {{ font: 13px/1.4 -apple-system, Segoe UI, Roboto, sans-serif; color:#222; margin:0; background:#fafafa; }}
- main {{ max-width: 1200px; margin: 0 auto; padding: 18px 22px; background:#fff; }}
- h1 {{ font-size: 21px; margin: 0 0 2px; }} h2 {{ font-size: 15px; margin: 14px 0 6px; border-bottom: 2px solid #0072B2; }}
- .sub {{ color:#555; margin-bottom:10px; }}
- .top {{ display:grid; grid-template-columns: 1fr 1.25fr; gap:16px; align-items:start; }}
- table {{ border-collapse: collapse; font-size:12px; }} td, th {{ padding:3px 8px; border-bottom:1px solid #ddd; text-align:left; }}
- .figs {{ display:grid; grid-template-columns: 1fr 1fr; gap:8px; }}
- .figs figure:last-child {{ grid-column: 1 / -1; }}
- figure {{ margin:0; }} img {{ width:100%; height:auto; border:1px solid #eee; }}
- ul {{ margin:6px 0 0 18px; padding:0; }} li {{ margin-bottom:3px; }}
- .note {{ font-size:11.5px; color:#444; background:#f4f7fb; padding:8px 10px; border-left:3px solid #0072B2; }}
-</style></head><body><main>
-<h1>Field-level EDA and spatial comparison</h1>
-<div class="sub">{len(fields)} grower-drawn fields · {fields['acres'].sum():,.1f} acres ·
-CDL {years['cdl'][0]}–{years['cdl'][-1]} · NASA POWER weather {years['weather'][0]}–{years['weather'][-1]} ·
-generated {date.today().isoformat()} by <code>my-farm-advisor/eda/field-eda</code></div>
-<div class="top">
- <div>
-  <table><tr><th>Grower</th><th>Location</th><th>Fields</th><th>Acres</th><th>Pivots</th></tr>{rows}</table>
-  <p class="note"><b>Data &amp; method.</b> Boundaries are grower-drawn polygons imported by the data
-  pipeline (areas in EPSG:5070). Weather is NASA POWER daily data sampled at each field centroid;
-  GDD use the 86/50 °F corn method over Apr 1–Sep 30. Crops are the majority USDA CDL class inside each
-  boundary (30 m), computed with the pipeline's cdl-cropland zonal routine. Pivot status is
-  grower-supplied. Soil is out of scope for this report by design. {html.escape(coverage_note)}</p>
- </div>
- <figure><img src="{_img(figs['map'])}" alt="field map"></figure>
-</div>
-{section("1 · Field boundaries", "boundaries", ["boundaries_size", "boundaries_shape", "boundaries_compare"])}
-{section("2 · Weather", "weather", ["weather_monthly", "weather_gdd", "weather_compare"])}
-{section("3 · Cropland (CDL)", "cdl", ["cdl_sequence", "cdl_purity", "cdl_compare"])}
-<section><h2>Limits</h2><ul>
-<li>{html.escape(n_note)}: tests are indicative, and acreage differs by grower ({', '.join(f"{g} {a:,.0f} ac" for g, a in fields.groupby('grower')['acres'].sum().items())}).</li>
-<li>NASA POWER cannot resolve field-to-field weather inside a farm; on-farm stations would be needed for that.</li>
-<li>CDL is a classification, not a planting record: edge pixels, double crops and misclassification all lower the majority share.</li>
-</ul></section>
-</main></body></html>
-"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(page, encoding="utf-8")
-    return path
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--unit", action="append", required=True, help="<grower-slug>:<farm-slug> (repeatable)")
     parser.add_argument("--cdl-years", default="2019-2025")
     parser.add_argument("--weather-years", default="2021-2025")
     parser.add_argument("--out-dir", default=None, help="Default: <runtime>/data-pipeline/eda/field-eda")
-    parser.add_argument("--publish-dir", default=None, help="Also copy report + figures here (small, committable)")
     parser.add_argument("--no-basemap", action="store_true", help="Skip online imagery tiles on the map")
     args = parser.parse_args(argv)
 
@@ -283,23 +211,29 @@ def main(argv: list[str] | None = None) -> int:
     spread.to_csv(tab_dir / "weather_within_farm_spread.csv", index=False)
 
     missing = sorted(set(cdl_years) - set(dom["year"]))
-    note = f"CDL years without rasters: {missing}." if missing else ""
     findings = build_findings(fields, bsum, wsum, spread, mix, dom)
-    report = write_report(out / "field_eda_report.html", figs, fields, findings,
-                          {"cdl": cdl_years, "weather": weather_years}, note)
-    print(f"\nReport: {report} ({report.stat().st_size / 1024:,.0f} KB)")
+    payload = {
+        "generated": date.today().isoformat(),
+        "years": {"cdl": cdl_years, "weather": weather_years},
+        "coverage_note": f"CDL years without rasters: {missing}." if missing else "",
+        "units": [
+            {"grower": g, "place": r.place, "fields": int(r.n), "acres": float(r.ac), "pivots": int(r.piv)}
+            for g, r in fields.groupby("grower")
+            .agg(place=("place", "first"), n=("field_id", "size"), ac=("acres", "sum"), piv=("pivot", "sum"))
+            .iterrows()
+        ],
+        "findings": findings,
+    }
+    (tab_dir / "findings.json").write_text(json.dumps(payload, indent=1), encoding="utf-8")
+
+    print(f"\nArtifacts: {out}")
+    print(f"  {len(figs)} figures in {fig_dir}")
+    print(f"  tables + findings.json in {tab_dir}")
     for key, lines in findings.items():
         print(f"\n[{key}]")
         for line in lines:
             print(f"  - {line}")
-
-    if args.publish_dir:
-        pub = Path(args.publish_dir)
-        (pub / "figures").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(report, pub / report.name)
-        for p in figs.values():
-            shutil.copy2(p, pub / "figures" / p.name)
-        print(f"\nPublished to {pub}")
+    print("\nNext: python report/build_report.py   (assembles the one-page HTML artifact)")
     return 0
 
 
